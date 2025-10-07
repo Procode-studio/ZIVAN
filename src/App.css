@@ -1,0 +1,13 @@
+body{
+  margin: 0;
+  background: #292929;
+  background-size: cover;
+  background-attachment: fixed;
+  height: 100vh;
+  overflow-y: hidden;
+  position: relative;
+}
+
+h2, h1, a, p, span, h3{
+  color: white;
+}

@@ -1,0 +1,93 @@
+#messenger{
+    background: #212121;
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px;
+    box-sizing: border-box;
+    position: relative;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow-y: hidden;
+}
+
+#messages{
+    position: relative;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    box-sizing: border-box;
+    flex-grow: 1;
+    overflow-y: auto;
+}
+
+#loading{
+    position: relative;
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Стилизация скроллбара */
+::-webkit-scrollbar {
+    width: 10px; /* Ширина скроллбара */
+}
+
+::-webkit-scrollbar-track {
+    background-color: #212121; /* Цвет трека скроллбара */
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #888; /* Цвет ползунка скроллбара */
+    border-radius: 5px; /* Закругление углов ползунка */
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: #555; /* Цвет ползунка при наведении */
+}
+
+#messages > div{
+    padding: 10px;
+    border-radius: 10px;
+    /* background: green; */
+    width: fit-content;
+    max-width: 70%;
+    color: white;
+}
+
+#messages > div[data-from="other"]{
+    border-bottom-left-radius: 0;
+    background: #8BC34A;
+}
+
+#messages > div[data-from="me"]{
+    border-bottom-left-radius: 0;
+    background: #4CAF50;
+}
+
+.mobile #messages > div[data-from="me"]{
+    align-self: flex-end;
+    border-radius: 10px;
+    border-bottom-right-radius: 0;
+}
+
+#input {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+#choose-interlocutor-text{
+    text-align: center;
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin: auto 0;
+}
+
+#no-messages-text{
+    text-align: center;
+    margin: auto 0;
+}

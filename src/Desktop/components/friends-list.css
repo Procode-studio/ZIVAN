@@ -1,0 +1,28 @@
+#friends {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: 350px;
+    background: #212121 ;
+    height: 100dvh;
+    overflow-y: scroll;
+}
+
+#friends::-webkit-scrollbar {
+    display: none;
+}
+
+.mobile #friends {
+    width: 100%;
+} 
+
+.friend {
+    width: 100% !important;
+    height: 60px !important;
+    padding: 5px 10px !important;
+    box-sizing: border-box !important;
+    text-transform: none !important;
+    text-align: left !important;
+    color: white !important;
+    border-radius: 0 !important;
+}

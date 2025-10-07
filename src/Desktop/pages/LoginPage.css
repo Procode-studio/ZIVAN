@@ -1,0 +1,13 @@
+#login{
+    display: flex;
+    flex-direction: column;
+    width: 500px;
+    background: #212121;
+    margin: 6rem auto;
+    align-items: center;
+    box-sizing: border-box;
+    padding: 30px;
+    align-items: stretch;
+    padding: 30px 80px;
+    gap: 10px;
+}
