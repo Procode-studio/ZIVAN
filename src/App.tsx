@@ -56,7 +56,6 @@ const UserInfoContext = createContext<UserInfoContextType>(
 )
 
 function getServerUrl() {
-  // Example implementation, adjust as needed
   return process.env.REACT_APP_SERVER_URL || 'http://localhost:8000/';
 }
 
