@@ -61,7 +61,9 @@ function getServerUrl() {
 
 function App() {
 
-  axios.defaults.baseURL = 'http://localhost:8000/';
+  const serverUrl = getServerUrl();
+  console.log('Server URL:', serverUrl);
+  axios.defaults.baseURL = serverUrl;
 
   const [userInfo, setUserInfo] = useState<UserInfoType>({
     user_id: parseInt(localStorage.getItem('user_id') || '-1'),
