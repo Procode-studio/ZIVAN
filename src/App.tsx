@@ -23,10 +23,15 @@ const darkTheme = createTheme({
   },
 })
 
-
 type UserInfoType = {
-  id: number;
+  user_id: number;
+  phone: string;
   name: string;
+  password: string;
+  is_activated: boolean;
+  is_admin: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 type UserInfoContextType = {
@@ -37,22 +42,38 @@ type UserInfoContextType = {
 const UserInfoContext = createContext<UserInfoContextType>(
   {
     userInfo: {
-      id: -1,
+      user_id: -1,
+      phone: '',
       name: '',
+      password: '',
+      is_activated: false,
+      is_admin: false,
+      created_at: '',
+      updated_at: ''
     },
     setUserInfo: (user: UserInfoType) => {}
   }
 )
 
+function getServerUrl() {
+  // Example implementation, adjust as needed
+  return process.env.REACT_APP_SERVER_URL || 'http://localhost:8000/';
+}
+
 function App() {
 
-  //axios.defaults.baseURL = 'https://simple-messenger-server.onrender.com/';
   axios.defaults.baseURL = 'http://localhost:8000/';
 
   const [userInfo, setUserInfo] = useState<UserInfoType>({
-    id: parseInt(localStorage.getItem('user_id') || '-1'),
-    name: localStorage.getItem('user_name') || '',
-  })
+    user_id: parseInt(localStorage.getItem('user_id') || '-1'),
+    phone: localStorage.getItem('phone') || '',
+    name: localStorage.getItem('name') || '',
+    password: localStorage.getItem('password') || '',
+    is_activated: JSON.parse(localStorage.getItem('is_activated') || 'false'),
+    is_admin: JSON.parse(localStorage.getItem('is_admin') || 'false'),
+    created_at: localStorage.getItem('created_at') || '',
+    updated_at: localStorage.getItem('updated_at') || ''
+  });
 
   return (
     <ThemeProvider theme={darkTheme}>

@@ -13,7 +13,8 @@
     "baseUrl": "src",
     "paths": {
       "my-types/*": ["Desktop/types/*"]
-    }
+    },
+    "types": ["vite/client"]
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

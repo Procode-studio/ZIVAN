@@ -8,6 +8,7 @@ import { useParams } from "react-router-dom";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useNavigate } from "react-router-dom";
 import InterlocutorProfile from "./InterlocutorProfile";
+import { getServerUrl, getWsUrl } from '../../config/serverConfig';
 
 export default function MobileMessenger() {
 
@@ -89,8 +90,7 @@ export default function MobileMessenger() {
     )
 
     useEffect(() => {
-        const newSocket = new WebSocket(`wss://simple-messenger-server.onrender.com/me/ws/${user_id}/${interlocutorId}`);
-        // const newSocket = new WebSocket(`ws://localhost:8000/me/ws/${user_id}/${interlocutorId}`);
+        const newSocket = new WebSocket(`${getWsUrl()}/me/ws/${user_id}/${interlocutorId}`);
 
         newSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
