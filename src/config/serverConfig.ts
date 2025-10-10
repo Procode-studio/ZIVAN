@@ -1,5 +1,9 @@
 export const getServerUrl = (): string => {
-  return 'https://zivan.duckdns.org';
+  // Временное решение для проверки
+  const url = 'https://zivan.duckdns.org';
+  console.log('getServerUrl() returning:', url);
+  console.log('Server URL:', url);
+  return url;
   
   // Используем переменную окружения из .env
   // return import.meta.env.VITE_SERVER_URL || 'http://localhost:8000';
