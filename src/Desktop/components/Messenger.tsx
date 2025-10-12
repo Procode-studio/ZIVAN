@@ -10,7 +10,8 @@ import InterlocutorProfile from "../../Mobile/components/InterlocutorProfile";
 import PhoneIcon from '@mui/icons-material/Phone';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import CallEndIcon from '@mui/icons-material/CallEnd';
-import { getServerUrl, getWsUrl } from '../../config/serverConfig'; 
+import { getServerUrl, getWsUrl } from '../../config/serverConfig';
+import { getTurnServers } from '../../config/turnConfig'; 
 
 
 export default function Messenger() {
@@ -21,7 +22,7 @@ export default function Messenger() {
 
     const user = useContext(UserInfoContext);
 
-    const user_id = user.userInfo.id;
+    const user_id = user.userInfo.user_id;
 
     const [messages, setMessages] = useState<MessageType[]>([]);
 
@@ -40,15 +41,13 @@ export default function Messenger() {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
-    // ICE servers (замени на свои Coturn creds)
-    const iceServers = [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { 
-            urls: 'turn:твой-vps-ip:3478?transport=udp',
-            username: 'твой-turn-username',
-            credential: 'твой-turn-password'
-        }
-    ];
+    // ICE servers для WebRTC (будет загружен асинхронно)
+    const [iceServers, setIceServers] = useState<RTCIceServer[]>([]);
+
+    // Загружаем TURN credentials при монтировании компонента
+    useEffect(() => {
+        getTurnServers().then(setIceServers);
+    }, []);
 
     const sendMessage = () => {
         if (!inputRef.current || interlocutorId === -1) return;
@@ -214,8 +213,12 @@ export default function Messenger() {
                 setMessages((prevMessages) => [
                     ...prevMessages,
                     {
+                        id: Date.now(), // Временный ID
                         text: data.text,
-                        author: data.author
+                        author: data.author,
+                        message_type: 'text',
+                        is_read: false,
+                        created_at: new Date().toISOString()
                     }
                 ]);
             } else if (msgType === 'offer' && data.author !== user_id) {

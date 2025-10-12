@@ -121,8 +121,14 @@ export default function DesktopLoginPage() {
             const user = await authAPI.login(loginData);
             
             setUserInfo({
-                id: user.id,
+                user_id: user.id,
+                phone: user.phone,
                 name: user.name,
+                password: '',
+                is_activated: false,
+                is_admin: false,
+                created_at: '',
+                updated_at: ''
             });
             
             localStorage.setItem('user_id', String(user.id));

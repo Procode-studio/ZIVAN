@@ -38,6 +38,7 @@ type UserInfoType = {
 type UserInfoContextType = {
   userInfo: UserInfoType;
   setUserInfo: (user: UserInfoType) => void;
+  logout: () => void;
 }
 
 const UserInfoContext = createContext<UserInfoContextType>(
@@ -52,14 +53,14 @@ const UserInfoContext = createContext<UserInfoContextType>(
       created_at: '',
       updated_at: ''
     },
-    setUserInfo: (user: UserInfoType) => {}
+    setUserInfo: (user: UserInfoType) => {},
+    logout: () => {}
   }
 )
 
 function App() {
 
   const serverUrl = getServerUrl();
-  logServerConfig();
   axios.defaults.baseURL = serverUrl;
 
   const [userInfo, setUserInfo] = useState<UserInfoType>({
@@ -73,14 +74,32 @@ function App() {
     updated_at: localStorage.getItem('updated_at') || ''
   });
 
+  // Проверяем, зарегистрирован ли пользователь
+  const isLoggedIn = userInfo.user_id !== -1 && userInfo.phone !== '';
+
+  // Функция для выхода
+  const logout = () => {
+    localStorage.clear();
+    setUserInfo({
+      user_id: -1,
+      phone: '',
+      name: '',
+      password: '',
+      is_activated: false,
+      is_admin: false,
+      created_at: '',
+      updated_at: ''
+    });
+  };
+
   return (
     <ThemeProvider theme={darkTheme}>
-      <UserInfoContext.Provider value={{userInfo, setUserInfo}}>
+      <UserInfoContext.Provider value={{userInfo, setUserInfo, logout}}>
         <BrowserView>
           <BrowserRouter>
             <Routes>
-              <Route path='/' element={<DefaultPage/>} />
-              <Route path='/messenger/:id' element={<DesktopMessengerPage/>} />
+              <Route path='/' element={isLoggedIn ? <DefaultPage/> : <DesktopLoginPage/>} />
+              <Route path='/messenger/:id' element={isLoggedIn ? <DesktopMessengerPage/> : <DesktopLoginPage/>} />
               <Route path='/login' element={<DesktopLoginPage/>} />
             </Routes>
           </BrowserRouter>
@@ -88,9 +107,9 @@ function App() {
         <MobileView className='mobile'>
           <BrowserRouter>
             <Routes>
-              <Route path='/' element={<DefaultPage/>} />
-              <Route path='/messenger/:id?' element={<MobileMessenger />} />
-              <Route path='/friends' element={<MobileFriendsPage />} />
+              <Route path='/' element={isLoggedIn ? <DefaultPage/> : <DesktopLoginPage/>} />
+              <Route path='/messenger/:id?' element={isLoggedIn ? <MobileMessenger /> : <DesktopLoginPage/>} />
+              <Route path='/friends' element={isLoggedIn ? <MobileFriendsPage /> : <DesktopLoginPage/>} />
               <Route path='/login' element={<DesktopLoginPage/>} />
             </Routes>
           </BrowserRouter>
