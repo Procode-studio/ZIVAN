@@ -10,7 +10,7 @@ import InterlocutorProfile from "../../Mobile/components/InterlocutorProfile";
 import PhoneIcon from '@mui/icons-material/Phone';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import CallEndIcon from '@mui/icons-material/CallEnd';
-import { getWsUrl } from '../../config/serverConfig'; 
+import { getServerUrl, getWsUrl } from '../../config/serverConfig'; 
 
 
 export default function Messenger() {
@@ -198,7 +198,7 @@ export default function Messenger() {
 
         const id1 = Math.min(user_id, interlocutorId);
         const id2 = Math.max(user_id, interlocutorId);
-        const newSocket = new WebSocket(getWsUrl(`${id1}/${id2}`));
+        const newSocket = new WebSocket(`${getWsUrl()}/me/ws/${id1}/${id2}`);
 
         newSocket.onopen = () => {
             console.log('WebSocket connected');

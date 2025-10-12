@@ -8,6 +8,7 @@ import axios from 'axios';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useNavigate } from "react-router-dom";
 import MobileFriend from '../components/Friend';
+import { getServerUrl } from '../../config/serverConfig';
 
 type UserType = {
     id: number;
@@ -27,7 +28,7 @@ export default function MobileFriendsPage() {
         () => {
             console.log(userInfo);
             const cancelToket = axios.CancelToken.source();
-            const url = 'users';
+            const url = `${getServerUrl()}/users`;
             axios.get(url, {
                 cancelToken: cancelToket.token
             })

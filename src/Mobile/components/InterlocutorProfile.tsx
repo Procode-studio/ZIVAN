@@ -5,6 +5,7 @@ import GetAvatar from '../../features/getAvatarByName';
 import { UserInfoContext } from "../../App";
 import { useState, useRef, useContext, useEffect } from "react";
 import axios from 'axios';
+import { getServerUrl } from '../../config/serverConfig';
 
 export default function InterlocutorProfile({interlocutorId, showButton=true}: {interlocutorId: number, showButton?: boolean}) {
 
@@ -23,7 +24,7 @@ export default function InterlocutorProfile({interlocutorId, showButton=true}: {
         }
 
         const CancelToken = axios.CancelToken.source();
-        const url = `/get-username/${interlocutorId}`;  // Добавлен / для абсолютного пути
+        const url = `${getServerUrl()}/get-username/${interlocutorId}`;
         axios.get(url, {
             cancelToken: CancelToken.token
         })

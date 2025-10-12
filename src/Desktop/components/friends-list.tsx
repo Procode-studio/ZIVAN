@@ -8,6 +8,7 @@ import { UserInfoContext } from "../../App";
 import axios from 'axios';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useNavigate } from "react-router-dom";
+import { getServerUrl } from '../../config/serverConfig';
 
 type UserType = {
     id: number;
@@ -25,7 +26,7 @@ export default function FriendsList() {
     useEffect(
         () => {
             const cancelToken = axios.CancelToken.source();
-            const url = '/users';
+            const url = `${getServerUrl()}/users`;
             axios.get(url, {
                 cancelToken: cancelToken.token
             })

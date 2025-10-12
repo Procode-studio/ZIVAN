@@ -6,6 +6,11 @@ export default defineConfig(({ mode }) => {
   // Загружаем переменные окружения
   const env = loadEnv(mode, process.cwd(), '');
   
+  // Определяем базовый URL для прокси в зависимости от режима
+  const proxyTarget = mode === 'production' 
+    ? (env.VITE_SERVER_URL || 'https://zivan.duckdns.org')
+    : (env.VITE_SERVER_URL || 'http://localhost:8000');
+  
   return {
     plugins: [react()],
     resolve: {
@@ -18,32 +23,32 @@ export default defineConfig(({ mode }) => {
       host: true,  // Для доступа по сети
       proxy: {
         '/api': {
-          target: env.VITE_SERVER_URL || 'http://localhost:8000',
+          target: proxyTarget,
           changeOrigin: true,
           secure: false
         },
         '/login': {
-          target: env.VITE_SERVER_URL || 'http://localhost:8000',
+          target: proxyTarget,
           changeOrigin: true,
           secure: false
         },
         '/register': {
-          target: env.VITE_SERVER_URL || 'http://localhost:8000',
+          target: proxyTarget,
           changeOrigin: true,
           secure: false
         },
         '/users': {
-          target: env.VITE_SERVER_URL || 'http://localhost:8000',
+          target: proxyTarget,
           changeOrigin: true,
           secure: false
         },
         '/get-username': {
-          target: env.VITE_SERVER_URL || 'http://localhost:8000',
+          target: proxyTarget,
           changeOrigin: true,
           secure: false
         },
         '/messages': {
-          target: env.VITE_SERVER_URL || 'http://localhost:8000',
+          target: proxyTarget,
           changeOrigin: true,
           secure: false
         }

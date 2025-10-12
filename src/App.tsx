@@ -10,6 +10,7 @@ import DefaultPage from './Desktop/pages/DefaultPage';
 import { BrowserView, MobileView } from 'react-device-detect';
 import MobileFriendsPage from './Mobile/pages/FriendsPage';
 import MobileMessenger from './Mobile/components/Messenger';
+import { getServerUrl, logServerConfig } from './config/serverConfig';
 
 const darkTheme = createTheme({
   palette: {
@@ -55,14 +56,10 @@ const UserInfoContext = createContext<UserInfoContextType>(
   }
 )
 
-function getServerUrl() {
-  return process.env.REACT_APP_SERVER_URL || 'http://localhost:8000/';
-}
-
 function App() {
 
   const serverUrl = getServerUrl();
-  console.log('Server URL:', serverUrl);
+  logServerConfig();
   axios.defaults.baseURL = serverUrl;
 
   const [userInfo, setUserInfo] = useState<UserInfoType>({

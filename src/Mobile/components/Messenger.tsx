@@ -53,7 +53,7 @@ export default function MobileMessenger() {
     useEffect(() => {
         setIsLoaded(false);
         const cancelTokenSource = axios.CancelToken.source();
-        const url = `me?id1=${user_id}&id2=${interlocutorId}`;
+        const url = `${getServerUrl()}/me?id1=${user_id}&id2=${interlocutorId}`;
         axios.get(url, {
             cancelToken: cancelTokenSource.token
         })
