@@ -120,11 +120,10 @@ export default function LoginPage() {
 
             const user = await authAPI.login(loginData);
             
-            login({
-                user_id: user.id,
-                phone: user.phone,
-                name: user.name
-            });
+            // Сохраняем в localStorage
+            localStorage.setItem('user_id', String(user.id));
+            localStorage.setItem('user_phone', user.phone);
+            localStorage.setItem('user_name', user.name);
 
             setSnackbar({
                 open: true,
