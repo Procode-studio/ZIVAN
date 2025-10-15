@@ -1,111 +1,111 @@
-import { useState, MouseEvent, useRef, useContext } from "react";
-import { styled } from '@mui/system';
-import { Button, IconButton, InputAdornment, TextField, Alert, Snackbar } from "@mui/material";
-import './LoginPage.css';
-import { VisibilityOff, Visibility } from "@mui/icons-material";
-import { UserInfoContext } from "../../App";
-import { useNavigate } from "react-router-dom";
-import { isMobile } from "react-device-detect";
-import { authAPI, RegisterRequest, LoginRequest } from "../../services/api";
+import React, { useRef, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+    Box,
+    TextField,
+    Button,
+    Typography,
+    Paper,
+    IconButton,
+    InputAdornment,
+    Alert,
+    Snackbar,
+    CircularProgress,
+    useTheme,
+    alpha
+} from '@mui/material';
+import {
+    Visibility,
+    VisibilityOff,
+    Person,
+    Phone,
+    Lock
+} from '@mui/icons-material';
+import { useAuth } from '../../context/AuthContext';
+import { authAPI, LoginRequest, RegisterRequest } from '../../services/api';
+import { useResponsive } from '../../hooks/useResponsive';
 
-const Btn = styled(Button)({
-    textTransform: 'none',
-})
-
-const StyledA = styled('a')({
-    '&:visited': {
-        color: '#8BC34A'
-    },
-    color: '#8BC34A',
-    textDecoration: 'underline',
-    cursor: 'pointer'
-})
-
-type State = 'login' | 'register';
-
-type FormError = {
-    username: Boolean;
-    password: Boolean;
-    name: Boolean;
+interface FormErrors {
+    username: boolean;
+    password: boolean;
+    name: boolean;
     usernameDesc: string;
     passwordDesc: string;
     nameDesc: string;
 }
 
-export default function DesktopLoginPage() {
+interface SnackbarState {
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'warning' | 'info';
+}
 
+export default function LoginPage() {
+    const theme = useTheme();
     const navigate = useNavigate();
+    const { login } = useAuth();
+    const { isMobile } = useResponsive();
 
-    const {setUserInfo} = useContext(UserInfoContext);
-
-    const passwordRef = useRef<HTMLInputElement>(null);
-    const usernameRef = useRef<HTMLInputElement>(null);
-    const nameRef = useRef<HTMLInputElement>(null);
-
-    const [curState, setCurState] = useState<State>('login');
+    const [curState, setCurState] = useState<'login' | 'register'>('login');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
-
-    const handleClickShowPassword = () => setShowPassword((show) => !show);
-
-    const [formError, setFormError] = useState<FormError>({
+    const [formError, setFormError] = useState<FormErrors>({
         username: false,
         password: false,
         name: false,
         usernameDesc: '',
         passwordDesc: '',
         nameDesc: ''
-    })
+    });
+    const [snackbar, setSnackbar] = useState<SnackbarState>({
+        open: false,
+        message: '',
+        severity: 'info'
+    });
 
+    const usernameRef = useRef<HTMLInputElement>(null);
+    const passwordRef = useRef<HTMLInputElement>(null);
+    const nameRef = useRef<HTMLInputElement>(null);
 
-    const handleMouseDownPassword = (event: MouseEvent<HTMLButtonElement>) => {
-        event.preventDefault();
-    };
+    const validateForm = (isRegister: boolean): boolean => {
+        let isValid = true;
+        const errors = { ...formError };
 
-    const validateForm = (isRegister: boolean = false) => {
-        let curError: FormError = {
-            username: false,
-            password: false,
-            name: false,
-            usernameDesc: '',
-            passwordDesc: '',
-            nameDesc: ''
-        };
-
-        const username = usernameRef.current?.value || '';
-        const password = passwordRef.current?.value || '';
-        const name = nameRef.current?.value || '';
-
-        // Валидация phone
-        if (username.length < 10) {
-            curError.username = true;
-            curError.usernameDesc = 'Номер телефона должен быть не менее 10 цифр';
-        } else if (!/^[0-9+\-\s()]+$/.test(username)) {
-            curError.username = true;
-            curError.usernameDesc = 'Номер телефона может содержать только цифры и символы +-()';
+        // Валидация телефона
+        if (!usernameRef.current?.value || usernameRef.current.value.length < 10) {
+            errors.username = true;
+            errors.usernameDesc = 'Введите корректный номер телефона';
+            isValid = false;
+        } else {
+            errors.username = false;
+            errors.usernameDesc = '';
         }
 
         // Валидация пароля
-        if (password.length < 6) {
-            curError.password = true;
-            curError.passwordDesc = 'Пароль должен быть не менее 6 символов';
+        if (!passwordRef.current?.value || passwordRef.current.value.length < 6) {
+            errors.password = true;
+            errors.passwordDesc = 'Пароль должен содержать минимум 6 символов';
+            isValid = false;
+        } else {
+            errors.password = false;
+            errors.passwordDesc = '';
         }
 
         // Валидация имени (только для регистрации)
         if (isRegister) {
-            if (name.length < 2) {
-                curError.name = true;
-                curError.nameDesc = 'Имя должно быть не менее 2 символов';
-            } else if (name.length > 50) {
-                curError.name = true;
-                curError.nameDesc = 'Имя должно быть не более 50 символов';
+            if (!nameRef.current?.value || nameRef.current.value.length < 2) {
+                errors.name = true;
+                errors.nameDesc = 'Имя должно содержать минимум 2 символа';
+                isValid = false;
+            } else {
+                errors.name = false;
+                errors.nameDesc = '';
             }
         }
 
-        setFormError(curError);
-        return !curError.username && !curError.password && (!isRegister || !curError.name);
-    }
+        setFormError(errors);
+        return isValid;
+    };
 
     const handleLogin = async () => {
         if (!passwordRef.current || !usernameRef.current) return;
@@ -120,51 +120,52 @@ export default function DesktopLoginPage() {
 
             const user = await authAPI.login(loginData);
             
-            setUserInfo({
+            login({
                 user_id: user.id,
                 phone: user.phone,
-                name: user.name,
-                password: '',
-                is_activated: false,
-                is_admin: false,
-                created_at: '',
-                updated_at: ''
+                name: user.name
             });
-            
-            localStorage.setItem('user_id', String(user.id));
-            localStorage.setItem('user_phone', user.phone);
-            localStorage.setItem('user_name', user.name);
 
             setSnackbar({
                 open: true,
                 message: 'Успешный вход!',
                 severity: 'success'
             });
-
-            if (isMobile) {
-                navigate('/friends');
-            } else {
-                navigate('/messenger/-1');
-            }
+            
+            // Небольшая задержка для отображения сообщения
+            setTimeout(() => {
+                if (isMobile) {
+                    navigate('/friends');
+                } else {
+                    navigate('/messenger/-1');
+                }
+            }, 500);
         } catch (error: any) {
             console.error('Login error:', error);
+            
+            let errorMessage = 'Ошибка входа';
+            let fieldErrors = { ...formError };
+
+            if (error.message) {
+                errorMessage = error.message;
+                fieldErrors.usernameDesc = error.message;
+                fieldErrors.passwordDesc = error.message;
+            } else if (error.response?.data?.detail) {
+                errorMessage = error.response.data.detail;
+                fieldErrors.usernameDesc = errorMessage;
+                fieldErrors.passwordDesc = errorMessage;
+            }
+            
+            setFormError(fieldErrors);
             setSnackbar({
                 open: true,
-                message: error.response?.data?.detail || 'Ошибка входа',
+                message: errorMessage,
                 severity: 'error'
-            });
-            setFormError({
-                username: true,
-                password: true,
-                name: false,
-                usernameDesc: 'Неверные данные',
-                passwordDesc: 'Неверные данные',
-                nameDesc: ''
             });
         } finally {
             setLoading(false);
         }
-    }
+    };
 
     const handleRegister = async () => {
         if (!passwordRef.current || !usernameRef.current || !nameRef.current) return;
@@ -198,24 +199,19 @@ export default function DesktopLoginPage() {
         } catch (error: any) {
             console.error('Register error:', error);
             
-            // Обрабатываем ошибки валидации
             let errorMessage = 'Ошибка регистрации';
-            let fieldErrors = {
-                username: false,
-                password: false,
-                name: false,
-                usernameDesc: '',
-                passwordDesc: '',
-                nameDesc: ''
-            };
+            let fieldErrors = { ...formError };
 
-            if (error.response?.data?.detail) {
+            if (error.message) {
+                errorMessage = error.message;
+                fieldErrors.username = true;
+                fieldErrors.usernameDesc = errorMessage;
+            } else if (error.response?.data?.detail) {
                 if (typeof error.response.data.detail === 'string') {
                     errorMessage = error.response.data.detail;
                     fieldErrors.username = true;
                     fieldErrors.usernameDesc = errorMessage;
                 } else if (Array.isArray(error.response.data.detail)) {
-                    // Обрабатываем массив ошибок валидации
                     error.response.data.detail.forEach((err: any) => {
                         if (err.loc && err.loc.includes('username')) {
                             fieldErrors.username = true;
@@ -241,164 +237,192 @@ export default function DesktopLoginPage() {
         } finally {
             setLoading(false);
         }
-    }
+    };
 
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (curState === 'login') {
+            handleLogin();
+        } else {
+            handleRegister();
+        }
+    };
+
+    const togglePasswordVisibility = () => {
+        setShowPassword(!showPassword);
+    };
+
+    const switchMode = () => {
+        setCurState(curState === 'login' ? 'register' : 'login');
+        setFormError({
+            username: false,
+            password: false,
+            name: false,
+            usernameDesc: '',
+            passwordDesc: '',
+            nameDesc: ''
+        });
+    };
+
+    useEffect(() => {
+        // Очистка формы при смене режима
+        if (usernameRef.current) usernameRef.current.value = '';
+        if (passwordRef.current) passwordRef.current.value = '';
+        if (nameRef.current) nameRef.current.value = '';
+    }, [curState]);
 
     return (
-        <>
-            <section id="login">
-                {
-                    curState === 'login' &&
-                    <>
-                        <h2 className="ta-center">
-                            Вход
-                        </h2>
-                        <TextField
-                        label="Номер телефона"
-                        error={formError.username.valueOf()}
-                        helperText={formError.usernameDesc}
-                        inputRef={usernameRef}
-                        color="secondary"
-                        disabled={loading}
-                        />
-                    <TextField
-                    label="Пароль"
-                    error={formError.password.valueOf()}
-                    helperText={formError.passwordDesc}
-                    inputRef={passwordRef}
-                    color="secondary"
-                    disabled={loading}
-                    InputProps={
-                        {
-                            type: showPassword ? 'text' : 'password',
-                            endAdornment: (
-                                <InputAdornment position="end">
-                                    <IconButton
-                                    aria-label="toggle password visibility"
-                                    onClick={handleClickShowPassword}
-                                    onMouseDown={handleMouseDownPassword}
-                                    edge="end"
-                                    disabled={loading}
-                                    >
-                                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                                    </IconButton>
-                                </InputAdornment>
-                            )
-                        }
-                    }
-                    />
-                    <Btn
-                    variant="contained"
-                    onClick={handleLogin}
-                    color="secondary"
-                    disabled={loading}
-                    style={
-                        {
-                            color: 'white'
-                        }
-                    }
-                    >
-                        {loading ? 'Вход...' : 'Войти'}
-                    </Btn>
-                    <p className="ta-center">
-                        Ещё нет аккаунта?  &nbsp;
-                        <StyledA
-                        className="us-none"
-                        onClick={() => setCurState('register')}
-                        >
-                            Зарегистрироваться
-                        </StyledA>
-                    </p>
-                </> 
-            }
-
-            {
-                curState === 'register' &&
-                <>
-                    <h2 className="ta-center">
-                        Регистрация
-                    </h2>
-                        <TextField
-                        label="Номер телефона"
-                        error={formError.username.valueOf()}
-                        helperText={formError.usernameDesc}
-                        inputRef={usernameRef}
-                        color="secondary"
-                        disabled={loading}
-                        />
-                    <TextField
-                    label="Имя"
-                    error={formError.name.valueOf()}
-                    helperText={formError.nameDesc}
-                    inputRef={nameRef}
-                    color="secondary"
-                    disabled={loading}
-                    />
-                    <TextField
-                    label="Пароль"
-                    error={formError.password.valueOf()}
-                    helperText={formError.passwordDesc}
-                    inputRef={passwordRef}
-                    color="secondary"
-                    disabled={loading}
-                    InputProps={
-                        {
-                            type: showPassword ? 'text' : 'password',
-                            endAdornment: (
-                                <InputAdornment position="end">
-                                    <IconButton
-                                    aria-label="toggle password visibility"
-                                    onClick={handleClickShowPassword}
-                                    onMouseDown={handleMouseDownPassword}
-                                    edge="end"
-                                    disabled={loading}
-                                    >
-                                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                                    </IconButton>
-                                </InputAdornment>
-                            )
-                        }
-                    }
-                    />
-                    <Btn
-                    variant="contained"
-                    onClick={handleRegister}
-                    color="secondary"
-                    disabled={loading}
-                    style={
-                        {
-                            color: 'white'
-                        }
-                    }
-                    >
-                        {loading ? 'Регистрация...' : 'Зарегистрироваться'}
-                    </Btn>
-                    <p className="ta-center us-none">
-                        Уже есть аккаунт?  &nbsp;
-                        <StyledA
-                        className="us-none"
-                        onClick={() => setCurState('login')}
-                        >
-                            Войти
-                        </StyledA>
-                    </p>
-                </>
-            }
-
-        </section>
-        
-        <Snackbar
-            open={snackbar.open}
-            autoHideDuration={6000}
-            onClose={() => setSnackbar({ ...snackbar, open: false })}
+        <Box
+            sx={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)} 0%, ${alpha(theme.palette.secondary.main, 0.1)} 100%)`,
+                p: 2
+            }}
         >
-            <Alert 
-                onClose={() => setSnackbar({ ...snackbar, open: false })} 
-                severity={snackbar.severity}
+            <Paper
+                elevation={10}
+                sx={{
+                    p: 4,
+                    width: '100%',
+                    maxWidth: 400,
+                    borderRadius: 2
+                }}
             >
-                {snackbar.message}
-            </Alert>
+                <Box sx={{ textAlign: 'center', mb: 4 }}>
+                    <Typography variant="h4" component="h1" gutterBottom fontWeight="bold">
+                        {curState === 'login' ? 'Вход' : 'Регистрация'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        {curState === 'login' 
+                            ? 'Войдите в свой аккаунт для продолжения'
+                            : 'Создайте новый аккаунт'
+                        }
+                    </Typography>
+                </Box>
+
+                <form onSubmit={handleSubmit}>
+                    <TextField
+                        inputRef={usernameRef}
+                        fullWidth
+                        label="Номер телефона"
+                        type="tel"
+                        margin="normal"
+                        error={formError.username}
+                        helperText={formError.usernameDesc}
+                        disabled={loading}
+                        InputProps={{
+                            startAdornment: (
+                                <InputAdornment position="start">
+                                    <Phone color={formError.username ? 'error' : 'action'} />
+                                </InputAdornment>
+                            ),
+                        }}
+                        sx={{ mb: 2 }}
+                    />
+
+                    {curState === 'register' && (
+                        <TextField
+                            inputRef={nameRef}
+                            fullWidth
+                            label="Имя"
+                            margin="normal"
+                            error={formError.name}
+                            helperText={formError.nameDesc}
+                            disabled={loading}
+                            InputProps={{
+                                startAdornment: (
+                                    <InputAdornment position="start">
+                                        <Person color={formError.name ? 'error' : 'action'} />
+                                    </InputAdornment>
+                                ),
+                            }}
+                            sx={{ mb: 2 }}
+                        />
+                    )}
+
+                    <TextField
+                        inputRef={passwordRef}
+                        fullWidth
+                        label="Пароль"
+                        type={showPassword ? 'text' : 'password'}
+                        margin="normal"
+                        error={formError.password}
+                        helperText={formError.passwordDesc}
+                        disabled={loading}
+                        InputProps={{
+                            startAdornment: (
+                                <InputAdornment position="start">
+                                    <Lock color={formError.password ? 'error' : 'action'} />
+                                </InputAdornment>
+                            ),
+                            endAdornment: (
+                                <InputAdornment position="end">
+                                    <IconButton
+                                        onClick={togglePasswordVisibility}
+                                        edge="end"
+                                        disabled={loading}
+                                    >
+                                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                                    </IconButton>
+                                </InputAdornment>
+                            ),
+                        }}
+                        sx={{ mb: 3 }}
+                    />
+
+                    <Button
+                        type="submit"
+                        fullWidth
+                        variant="contained"
+                        size="large"
+                        disabled={loading}
+                        sx={{ mb: 2, py: 1.5 }}
+                    >
+                        {loading ? (
+                            <CircularProgress size={24} color="inherit" />
+                        ) : (
+                            curState === 'login' ? 'Войти' : 'Зарегистрироваться'
+                        )}
+                    </Button>
+
+                    <Box sx={{ textAlign: 'center' }}>
+                        <Typography variant="body2" color="text.secondary">
+                            {curState === 'login' ? 'Нет аккаунта?' : 'Уже есть аккаунт?'}{' '}
+                            <Button
+                                onClick={switchMode}
+                                type="button"
+                                disabled={loading}
+                                sx={{ 
+                                    textTransform: 'none',
+                                    p: 0,
+                                    minWidth: 'auto',
+                                    fontWeight: 'bold'
+                                }}
+                            >
+                                {curState === 'login' ? 'Зарегистрироваться' : 'Войти'}
+                            </Button>
+                        </Typography>
+                    </Box>
+                </form>
+            </Paper>
+
+            <Snackbar
+                open={snackbar.open}
+                autoHideDuration={6000}
+                onClose={() => setSnackbar({ ...snackbar, open: false })}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert
+                    onClose={() => setSnackbar({ ...snackbar, open: false })}
+                    severity={snackbar.severity}
+                    sx={{ width: '100%' }}
+                >
+                    {snackbar.message}
+                </Alert>
             </Snackbar>
-        </>
+        </Box>
     );
 }
