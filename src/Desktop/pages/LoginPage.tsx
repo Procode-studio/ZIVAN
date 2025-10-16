@@ -12,7 +12,8 @@ import {
     Snackbar,
     CircularProgress,
     useTheme,
-    alpha
+    alpha,
+    useMediaQuery
 } from '@mui/material';
 import {
     Visibility,
@@ -21,9 +22,7 @@ import {
     Phone,
     Lock
 } from '@mui/icons-material';
-import { useAuth } from '../../context/AuthContext';
 import { authAPI, LoginRequest, RegisterRequest } from '../../services/api';
-import { useResponsive } from '../../hooks/useResponsive';
 
 interface FormErrors {
     username: boolean;
@@ -43,9 +42,8 @@ interface SnackbarState {
 export default function LoginPage() {
     const theme = useTheme();
     const navigate = useNavigate();
-    const { login } = useAuth();
-    const { isMobile } = useResponsive();
-
+    const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+    
     const [curState, setCurState] = useState<'login' | 'register'>('login');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);

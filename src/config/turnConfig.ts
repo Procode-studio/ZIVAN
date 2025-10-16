@@ -42,12 +42,25 @@ export async function getTurnServers(): Promise<RTCIceServer[]> {
         const response = await fetch(`${getServerUrl()}/turn-credentials`, {
           signal: controller.signal,
           mode: 'cors',
-          credentials: 'omit'
+          credentials: 'omit',
+          headers: {
+            'Content-Type': 'application/json',
+          }
         });
         
         clearTimeout(timeoutId);
 
         if (!response.ok) {
+          // Если CORS ошибка, пробуем с no-cors mode
+          if (response.status === 0) {
+            console.warn('CORS error, trying no-cors mode');
+            const noCorsResponse = await fetch(`${getServerUrl()}/turn-credentials`, {
+              mode: 'no-cors',
+              credentials: 'omit'
+            });
+            // no-cors не даст доступа к данным, поэтому просто используем STUN
+            throw new Error('CORS blocked, using STUN only');
+          }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
@@ -55,6 +68,15 @@ export async function getTurnServers(): Promise<RTCIceServer[]> {
         
         turnCredentials = data;
         credentialsExpiry = now + (data.ttl || 3600);
+      } catch (error: any) {
+        console.warn('Failed to get TURN credentials, using STUN only:', error.message);
+        
+        // Сбрасываем кэш при ошибке
+        turnCredentials = null;
+        credentialsExpiry = 0;
+        
+        // В случае ошибки используем только STUN серверы
+        return STUN_SERVERS;
       } finally {
         isFetching = false;
       }
