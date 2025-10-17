@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Box,
@@ -23,6 +23,7 @@ import {
     Lock
 } from '@mui/icons-material';
 import { authAPI, LoginRequest, RegisterRequest } from '../../services/api';
+import { UserInfoContext } from '../../App';
 
 interface FormErrors {
     username: boolean;
@@ -43,6 +44,9 @@ export default function LoginPage() {
     const theme = useTheme();
     const navigate = useNavigate();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+    
+    // ВАЖНО: Используем контекст для обновления состояния пользователя
+    const { setUserInfo } = useContext(UserInfoContext);
     
     const [curState, setCurState] = useState<'login' | 'register'>('login');
     const [showPassword, setShowPassword] = useState(false);
@@ -111,6 +115,8 @@ export default function LoginPage() {
 
         setLoading(true);
         try {
+            console.log('🔐 Attempting login...');
+            
             const loginData: LoginRequest = {
                 phone: usernameRef.current.value,
                 password: passwordRef.current.value
@@ -118,10 +124,24 @@ export default function LoginPage() {
 
             const user = await authAPI.login(loginData);
             
-            // Сохраняем в localStorage
-            localStorage.setItem('user_id', String(user.id));
-            localStorage.setItem('user_phone', user.phone);
-            localStorage.setItem('user_name', user.name);
+            console.log('✅ Login successful:', user);
+
+            // Создаем полный объект пользователя
+            const userInfo = {
+                user_id: user.id,
+                phone: user.phone,
+                name: user.name,
+                password: passwordRef.current.value, // Сохраняем для авто-логина
+                is_activated: true,
+                is_admin: false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            // КРИТИЧЕСКИ ВАЖНО: Обновляем контекст (это также сохранит в localStorage)
+            setUserInfo(userInfo);
+
+            console.log('💾 User info updated in context');
 
             setSnackbar({
                 open: true,
@@ -131,6 +151,7 @@ export default function LoginPage() {
             
             // Небольшая задержка для отображения сообщения
             setTimeout(() => {
+                console.log('🚀 Navigating to messenger...');
                 if (isMobile) {
                     navigate('/friends');
                 } else {
@@ -138,7 +159,7 @@ export default function LoginPage() {
                 }
             }, 500);
         } catch (error: any) {
-            console.error('Login error:', error);
+            console.error('❌ Login error:', error);
             
             let errorMessage = 'Ошибка входа';
             let fieldErrors = { ...formError };
@@ -170,6 +191,8 @@ export default function LoginPage() {
 
         setLoading(true);
         try {
+            console.log('📝 Attempting registration...');
+            
             const registerData: RegisterRequest = {
                 phone: usernameRef.current.value,
                 name: nameRef.current.value,
@@ -177,6 +200,8 @@ export default function LoginPage() {
             };
 
             await authAPI.register(registerData);
+            
+            console.log('✅ Registration successful');
             
             setSnackbar({
                 open: true,
@@ -194,7 +219,7 @@ export default function LoginPage() {
                 nameDesc: ''
             });
         } catch (error: any) {
-            console.error('Register error:', error);
+            console.error('❌ Register error:', error);
             
             let errorMessage = 'Ошибка регистрации';
             let fieldErrors = { ...formError };

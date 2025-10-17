@@ -35,9 +35,9 @@ export default function FriendsList() {
                 setFriends(data.map((user) => ({
                     name: user.name,
                     id: user.id,
-                    username: '',  // Дефолт (опционально)
-                    is_online: false,  // Дефолт
-                    last_seen: ''  // Дефолт
+                    username: '',
+                    is_online: false, 
+                    last_seen: ''
                 })).filter((friend) => friend.id !== userInfo.userInfo.id));
             })
             .catch((error) => {
