@@ -1,21 +1,14 @@
 import './Main.css';
 import './App.css';
-import {
-  Routes,
-  Route,
-  BrowserRouter,
-  Navigate,
-  useNavigate,
-  useLocation,
-} from 'react-router-dom';
+import { Routes, Route, Navigate, HashRouter } from 'react-router-dom';
 import DesktopLoginPage from './Desktop/pages/LoginPage';
 import DesktopMessengerPage from './Desktop/pages/MessengerPage';
-import { createContext, useEffect, useState } from 'react';
-import { ThemeProvider, createTheme } from '@mui/material';
-import axios from 'axios';
 import DefaultPage from './Desktop/pages/DefaultPage';
 import MobileFriendsPage from './Mobile/pages/FriendsPage';
 import MobileMessenger from './Mobile/components/Messenger';
+import { ThemeProvider, createTheme } from '@mui/material';
+import { createContext, useEffect, useState } from 'react';
+import axios from 'axios';
 import { getServerUrl, logServerConfig } from './config/serverConfig';
 
 const darkTheme = createTheme({
@@ -26,9 +19,9 @@ const darkTheme = createTheme({
   },
 });
 
-type UserInfoType = {
+// Убираем дублирующее поле `id` — оставляем только `user_id`
+export type UserInfoType = {
   user_id: number;
-  id?: number;
   phone: string;
   name: string;
   username?: string;
@@ -45,6 +38,7 @@ type UserInfoContextType = {
   logout: () => void;
 };
 
+// Создаём контекст с правильной типизацией
 const UserInfoContext = createContext<UserInfoContextType>({
   userInfo: {
     user_id: -1,
@@ -56,75 +50,21 @@ const UserInfoContext = createContext<UserInfoContextType>({
     created_at: '',
     updated_at: '',
   },
-  setUserInfo: () => {},
+  // Заглушки с правильной сигнатурой
+  setUserInfo: (user: UserInfoType) => {}, // ← принимает аргумент!
   logout: () => {},
 });
-
-function RootRouter({ isLoggedIn }: { isLoggedIn: boolean }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  useEffect(() => {
-    // Определяем, был ли реальный reload страницы
-    const navEntry = performance.getEntriesByType('navigation')[0] as
-      | PerformanceNavigationTiming
-      | undefined;
-    const isReload =
-      navEntry?.type === 'reload' ||
-      ((performance as any).navigation?.type === 1);
-
-    // Всегда уходим на "/" при перезагрузке
-    if (isReload) {
-      navigate('/', { replace: true });
-      return;
-    }
-
-    // Защита от URL вида /messenger/-1
-    if (location.pathname.startsWith('/messenger/-1')) {
-      navigate('/', { replace: true });
-    }
-  }, [location.pathname, navigate]);
-
-  return (
-    <Routes>
-      <Route path="/" element={<DefaultPage />} />
-      <Route path="/login" element={<DesktopLoginPage />} />
-
-      {/* Защищённые маршруты */}
-      <Route
-        path="/messenger"
-        element={isLoggedIn ? <DesktopMessengerPage /> : <Navigate to="/" replace />}
-      />
-      <Route
-        path="/messenger/:id"
-        element={isLoggedIn ? <DesktopMessengerPage /> : <Navigate to="/" replace />}
-      />
-
-      <Route
-        path="/friends"
-        element={isLoggedIn ? <MobileFriendsPage /> : <Navigate to="/" replace />}
-      />
-      <Route
-        path="/m"
-        element={isLoggedIn ? <MobileMessenger /> : <Navigate to="/" replace />}
-      />
-
-      {/* Любые неизвестные пути — на корень */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-  );
-}
 
 function App() {
   const serverUrl = getServerUrl();
   axios.defaults.baseURL = serverUrl;
 
+  // Инициализируем состояние с тем же типом, что и UserInfoType
   const [userInfo, setUserInfo] = useState<UserInfoType>({
     user_id: parseInt(localStorage.getItem('user_id') || '-1', 10),
-    id: parseInt(localStorage.getItem('user_id') || '-1', 10),
     phone: localStorage.getItem('phone') || '',
     name: localStorage.getItem('name') || '',
-    username: localStorage.getItem('name') || '',
+    username: localStorage.getItem('username') || undefined,
     password: localStorage.getItem('password') || '',
     is_activated: JSON.parse(localStorage.getItem('is_activated') || 'false'),
     is_admin: JSON.parse(localStorage.getItem('is_admin') || 'false'),
@@ -152,9 +92,10 @@ function App() {
     localStorage.setItem('user_id', user.user_id.toString());
     localStorage.setItem('phone', user.phone);
     localStorage.setItem('name', user.name);
+    if (user.username) localStorage.setItem('username', user.username);
     localStorage.setItem('password', user.password);
-    localStorage.setItem('is_activated', JSON.stringify(user.is_activated));
-    localStorage.setItem('is_admin', JSON.stringify(user.is_admin));
+    localStorage.setItem('is_activated', String(user.is_activated));
+    localStorage.setItem('is_admin', String(user.is_admin));
     localStorage.setItem('created_at', user.created_at);
     localStorage.setItem('updated_at', user.updated_at);
     setUserInfo(user);
@@ -167,9 +108,29 @@ function App() {
   return (
     <ThemeProvider theme={darkTheme}>
       <UserInfoContext.Provider value={{ userInfo, setUserInfo: updateUserInfo, logout }}>
-        <BrowserRouter>
-          <RootRouter isLoggedIn={isLoggedIn} />
-        </BrowserRouter>
+        <HashRouter>
+          <Routes>
+            <Route path="/" element={<DefaultPage />} />
+            <Route path="/login" element={<DesktopLoginPage />} />
+            <Route
+              path="/messenger"
+              element={isLoggedIn ? <DesktopMessengerPage /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/messenger/:id"
+              element={isLoggedIn ? <DesktopMessengerPage /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/friends"
+              element={isLoggedIn ? <MobileFriendsPage /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/m"
+              element={isLoggedIn ? <MobileMessenger /> : <Navigate to="/" replace />}
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </HashRouter>
       </UserInfoContext.Provider>
     </ThemeProvider>
   );
