@@ -1,6 +1,5 @@
 import { CircularProgress, IconButton, InputAdornment, TextField } from "@mui/material";
 import { useState, useRef, useContext, useEffect } from "react";
-import { MessageType, MessageResponseType } from "my-types/Messege";
 import SendIcon from '@mui/icons-material/Send';
 import { UserInfoContext } from "../../App";
 import axios from "axios";
@@ -9,6 +8,19 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useNavigate } from "react-router-dom";
 import InterlocutorProfile from "./InterlocutorProfile";
 import { getServerUrl, getWsUrl } from '../../config/serverConfig';
+
+type MessageType = {
+  text: string;
+  user_id: number;
+};
+
+type MessageResponseType = {
+  id: number;
+  user_id1: number;
+  user_id2: number;
+  text: string;
+  author: number;
+};
 
 export default function MobileMessenger() {
 
@@ -22,7 +34,7 @@ export default function MobileMessenger() {
 
     const user = useContext(UserInfoContext);
 
-    const user_id = user.userInfo.id;
+    const user_id = user.userInfo.user_id;
 
     const [messages, setMessages] = useState<MessageType[]>([]);
 
@@ -53,7 +65,7 @@ export default function MobileMessenger() {
     useEffect(() => {
         setIsLoaded(false);
         const cancelTokenSource = axios.CancelToken.source();
-        const url = `${getServerUrl()}/me?id1=${user_id}&id2=${interlocutorId}`;
+        const url = `${getServerUrl()}/messages/${user_id}/${interlocutorId}`;
         axios.get(url, {
             cancelToken: cancelTokenSource.token
         })
