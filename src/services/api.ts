@@ -6,33 +6,17 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000, // 10 секунд таймаут
+  timeout: 10000,
 });
 
-// Добавляем interceptor для обработки ошибок
-apiClient.interceptors.request.use(
-  (config) => {
-    console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
-    return config;
-  },
-  (error) => {
-    console.error('API Request Error:', error);
-    return Promise.reject(error);
-  }
-);
-
+// Interceptor для обработки ошибок (без логов успешных запросов)
 apiClient.interceptors.response.use(
-  (response) => {
-    console.log(`API Response: ${response.status} ${response.config.url}`);
-    return response;
-  },
+  (response) => response,
   (error) => {
-    console.error('API Response Error:', error);
-    
+    // Обработка ошибок без логирования
     if (error.code === 'ECONNABORTED') {
       error.message = 'Превышено время ожидания запроса';
     } else if (error.response) {
-      // Сервер ответил с ошибкой
       switch (error.response.status) {
         case 400:
           error.message = error.response.data?.detail || 'Неверный запрос';
@@ -53,14 +37,12 @@ apiClient.interceptors.response.use(
           error.message = error.response.data?.detail || `Ошибка ${error.response.status}`;
       }
     } else if (error.request) {
-      // Запрос был сделан, но ответ не получен
       if (error.code === 'ERR_NETWORK') {
         error.message = 'Сеть недоступна. Проверьте подключение к интернету.';
       } else {
         error.message = 'Не удалось подключиться к серверу';
       }
     } else {
-      // Что-то случилось при настройке запроса
       error.message = 'Ошибка конфигурации запроса';
     }
     
@@ -89,23 +71,13 @@ export interface User {
 // API функции
 export const authAPI = {
   login: async (data: LoginRequest): Promise<User> => {
-    try {
-      const response = await apiClient.post('/login', data);
-      return response.data;
-    } catch (error: any) {
-      console.error('Login error:', error);
-      throw error;
-    }
+    const response = await apiClient.post('/login', data);
+    return response.data;
   },
 
   register: async (data: RegisterRequest): Promise<User> => {
-    try {
-      const response = await apiClient.post('/register', data);
-      return response.data;
-    } catch (error: any) {
-      console.error('Register error:', error);
-      throw error;
-    }
+    const response = await apiClient.post('/register', data);
+    return response.data;
   },
 };
 

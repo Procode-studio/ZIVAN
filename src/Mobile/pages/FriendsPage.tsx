@@ -1,70 +1,98 @@
-import { FriendType } from "../../Desktop/types/Friend";
 import { useEffect, useState, useContext } from "react";
-import MobileFriend from "../components/Friend";
 import { Button, CircularProgress, Divider } from "@mui/material";
 import LogoutIcon from "@mui/icons-material/Logout";
 import { useNavigate } from "react-router-dom";
 import { UserInfoContext } from "../../App";
 import axios from "axios";
 import { getServerUrl } from "../../config/serverConfig";
+import MobileFriend from "../components/Friend";
 
-type UserType = {
-    id: number;
-    username: string;
-};
+type Friend = { id: number; name: string };
 
 export default function MobileFriendsPage() {
     const navigate = useNavigate();
-    const userInfo = useContext(UserInfoContext);
-
-    const [friends, setFriends] = useState<FriendType[]>([]);
+    const { userInfo, logout } = useContext(UserInfoContext);
+    const [friends, setFriends] = useState<Friend[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        if (!userInfo?.userInfo?.id) return;
+        const uid = userInfo?.user_id;
+        if (!uid || uid === -1) {
+            setIsLoading(false);
+            return;
+        }
 
         const cancelToken = axios.CancelToken.source();
         const url = `${getServerUrl()}/users`;
 
-        axios.get<UserType[]>(url, { cancelToken: cancelToken.token })
+        axios.get(url, { cancelToken: cancelToken.token })
             .then((res) => {
                 setFriends(
                     res.data
-                        .map((u) => ({ name: u.username, id: u.id }))
-                        .filter((f) => f.id !== userInfo.userInfo.id)
+                        .map((u: any) => ({ name: u.name, id: u.id }))
+                        .filter((f: Friend) => f.id !== uid)
                 );
             })
-            .catch(console.error)
+            .catch((error) => {
+                if (!axios.isCancel(error)) {
+                    console.error('Failed to load users');
+                }
+            })
             .finally(() => setIsLoading(false));
 
-        return () => cancelToken.cancel();
-    }, [userInfo?.userInfo?.id]);
+        return () => cancelToken.cancel('cleanup');
+    }, [userInfo?.user_id]);
 
     const handleLogout = () => {
-        localStorage.clear();
+        logout();
         navigate("/login");
     };
 
     return (
-        <div id="friends">
-            <section>
-                <MobileFriend
-                    name={userInfo.userInfo.username || "a"}
-                    id={-1}
-                />
-                <Button color="error" className="d-flex g-5" onClick={handleLogout}>
+        <div id='friends'>
+            <section style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                padding: '12px 16px'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <h3 style={{ margin: 0 }}>Контакты</h3>
+                </div>
+                <Button 
+                    onClick={handleLogout} 
+                    startIcon={<LogoutIcon />}
+                    color="error"
+                    size="small"
+                >
                     Выйти
-                    <LogoutIcon sx={{ fontSize: 18 }} />
                 </Button>
             </section>
             <Divider />
+            
             {isLoading ? (
-                <center style={{ width: "100%", height: "100%" }}>
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'center', 
+                    padding: 48 
+                }}>
                     <CircularProgress color="secondary" />
-                </center>
+                </div>
+            ) : friends.length === 0 ? (
+                <div style={{ 
+                    textAlign: 'center', 
+                    padding: 48,
+                    color: '#999'
+                }}>
+                    Нет доступных контактов
+                </div>
             ) : (
                 friends.map((friend) => (
-                    <MobileFriend key={friend.id} name={friend.name} id={friend.id} />
+                    <MobileFriend 
+                        key={friend.id} 
+                        name={friend.name} 
+                        id={friend.id} 
+                    />
                 ))
             )}
         </div>

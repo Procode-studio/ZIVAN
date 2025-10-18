@@ -115,33 +115,27 @@ export default function LoginPage() {
 
         setLoading(true);
         try {
-            console.log('🔐 Attempting login...');
-            
             const loginData: LoginRequest = {
                 phone: usernameRef.current.value,
                 password: passwordRef.current.value
             };
 
             const user = await authAPI.login(loginData);
-            
-            console.log('✅ Login successful:', user);
 
             // Создаем полный объект пользователя
             const userInfo = {
                 user_id: user.id,
                 phone: user.phone,
                 name: user.name,
-                password: passwordRef.current.value, // Сохраняем для авто-логина
+                password: passwordRef.current.value,
                 is_activated: true,
                 is_admin: false,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
 
-            // КРИТИЧЕСКИ ВАЖНО: Обновляем контекст (это также сохранит в localStorage)
+            // Обновляем контекст (это также сохранит в localStorage)
             setUserInfo(userInfo);
-
-            console.log('💾 User info updated in context');
 
             setSnackbar({
                 open: true,
@@ -149,9 +143,7 @@ export default function LoginPage() {
                 severity: 'success'
             });
             
-            // Небольшая задержка для отображения сообщения
             setTimeout(() => {
-                console.log('🚀 Navigating to messenger...');
                 if (isMobile) {
                     navigate('/friends');
                 } else {
@@ -159,8 +151,6 @@ export default function LoginPage() {
                 }
             }, 500);
         } catch (error: any) {
-            console.error('❌ Login error:', error);
-            
             let errorMessage = 'Ошибка входа';
             let fieldErrors = { ...formError };
 
@@ -191,8 +181,6 @@ export default function LoginPage() {
 
         setLoading(true);
         try {
-            console.log('📝 Attempting registration...');
-            
             const registerData: RegisterRequest = {
                 phone: usernameRef.current.value,
                 name: nameRef.current.value,
@@ -200,8 +188,6 @@ export default function LoginPage() {
             };
 
             await authAPI.register(registerData);
-            
-            console.log('✅ Registration successful');
             
             setSnackbar({
                 open: true,
@@ -219,8 +205,6 @@ export default function LoginPage() {
                 nameDesc: ''
             });
         } catch (error: any) {
-            console.error('❌ Register error:', error);
-            
             let errorMessage = 'Ошибка регистрации';
             let fieldErrors = { ...formError };
 
@@ -447,4 +431,4 @@ export default function LoginPage() {
             </Snackbar>
         </Box>
     );
-}
+} 
