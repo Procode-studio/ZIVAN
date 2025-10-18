@@ -1,79 +1,41 @@
-import './friends-list.css';
-import { FriendType } from "../types/Friend";
-import { useEffect, useState } from 'react';
-import MobileFriend from './Friend';
-import { Button, Divider } from '@mui/material';
-import { useContext } from "react";
-import { UserInfoContext } from "../../App";
+// В FriendsList.tsx
+import { useContext, useEffect, useState } from 'react';
+import { UserInfoContext } from '../../App';
 import axios from 'axios';
-import LogoutIcon from '@mui/icons-material/Logout';
-import { useNavigate } from "react-router-dom";
 import { getServerUrl } from '../../config/serverConfig';
+import { Button } from '@mui/material';  // Или ваш компонент друга
+import GetAvatar from '../../features/getAvatarByName';
+import { useNavigate } from 'react-router-dom';
 
-type UserType = {
-    id: number;
-    name: string;
-}
+type FriendType = { id: number; name: string; };
 
 export default function FriendsList() {
-
+    const user = useContext(UserInfoContext);
+    const user_id = user.userInfo.user_id;
+    const user_name = user.userInfo.name;  // Используйте для заголовка вместо "You"
+    const [friends, setFriends] = useState<FriendType[]>([]);
     const navigate = useNavigate();
 
-    const userInfo = useContext(UserInfoContext);
-
-    const [friends, setFriends] = useState<FriendType[]>([]);
-
-    useEffect(
-        () => {
-            const cancelToken = axios.CancelToken.source();
-            const url = `${getServerUrl()}/users`;
-            axios.get(url, {
-                cancelToken: cancelToken.token
+    useEffect(() => {
+        axios.get(`${getServerUrl()}/users`)
+            .then((response) => {
+                const allUsers: FriendType[] = response.data;
+                // Фильтр: Исключаем себя
+                const filtered = allUsers.filter((u) => u.id !== user_id);
+                setFriends(filtered);
             })
-            .then((res) => {
-                const data: UserType[] = res.data;
-                setFriends(data.map((user) => ({
-                    name: user.name,
-                    id: user.id,
-                    username: '',
-                    is_online: false, 
-                    last_seen: ''
-                })).filter((friend) => friend.id !== userInfo.userInfo.id));
-            })
-            .catch((error) => {
-                if (!axios.isCancel(error)) {
-                    console.error('Failed to load friends:', error);
-                }
-            })
-            return () => {
-                cancelToken.cancel();
-            }
-        },
-        [userInfo.userInfo.id]
-    )
-
-    const handleLogout = () => {
-        localStorage.clear();
-        navigate('/login');
-    }
-
-    const username = localStorage.getItem('user_name') || '';
+            .catch((error) => console.error(error));
+    }, [user_id]);
 
     return (
-        <div id='friends'>
-            <section>
-                <MobileFriend name={username || 'You'} id={-2} />
-                <Button color="error" className='d-flex g-5' onClick={handleLogout}>
-                    Выйти
-                    <LogoutIcon style={{ fontSize: '18px' }}/>
+        <div>
+            <h3>{user_name}</h3>  {/* Вместо "You" - ваш реальный name */}
+            {friends.map((friend) => (
+                <Button key={friend.id} onClick={() => navigate(`/messenger/${friend.id}`)}>
+                    <GetAvatar name={friend.name} />
+                    {friend.name}
                 </Button>
-            </section>
-            <Divider />
-            {
-                friends.map((friend, index) =>
-                    <MobileFriend key={index} name={friend.name} id={friend.id} />
-                )
-            }
+            ))}
         </div>
-    )
+    );
 }
