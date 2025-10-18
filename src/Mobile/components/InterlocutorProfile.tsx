@@ -12,7 +12,7 @@ export default function InterlocutorProfile({interlocutorId, showButton=true}: {
     const [name, setName] = useState<string>('');
 
     const handleGoBack = () => {
-        navigate(-1);
+        navigate('/friends');
     }
 
     useEffect(() => {
