@@ -115,11 +115,17 @@ export default function Messenger() {
 
         pc.ontrack = (event) => {
             console.log('Received remote track:', event.track.kind, 'enabled:', event.track.enabled);
-            if (!remoteStream) {
-                const newStream = new MediaStream();
-                setRemoteStream(newStream);
+            if (event.streams && event.streams.length > 0) {
+                // Используем существующий поток от peer connection
+                setRemoteStream(event.streams[0]);
+            } else {
+                // Создаем новый поток и добавляем трек
+                if (!remoteStream) {
+                    const newStream = new MediaStream();
+                    setRemoteStream(newStream);
+                }
+                remoteStream?.addTrack(event.track);
             }
-            remoteStream?.addTrack(event.track);
         };
 
         pc.oniceconnectionstatechange = () => {
@@ -175,6 +181,7 @@ export default function Messenger() {
                 audio: true
             });
             
+            console.log('Got local stream:', stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled })));
             setLocalStream(stream);
             setIsVideoEnabled(video);
             setIsAudioEnabled(true);
@@ -183,10 +190,10 @@ export default function Messenger() {
                 localVideoRef.current.srcObject = stream;
                 localVideoRef.current.play().catch(err => console.error('Local video play error:', err));
             }
-
+            
             const pc = createPeerConnection();
             stream.getTracks().forEach(track => {
-                console.log('Adding local track:', track.kind);
+                console.log('Adding local track:', track.kind, 'enabled:', track.enabled);
                 pc.addTrack(track, stream);
             });
 
@@ -200,7 +207,7 @@ export default function Messenger() {
                 author: user_id,
                 video: video
             }));
-            
+
             setIsCalling(true);
 
             // Timeout for connection
@@ -262,6 +269,7 @@ export default function Messenger() {
                 audio: true 
             });
             
+            console.log('Got local stream:', stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled })));
             setLocalStream(stream);
             setIsVideoEnabled(video);
             setIsAudioEnabled(true);
@@ -271,8 +279,9 @@ export default function Messenger() {
                 localVideoRef.current.play().catch(err => console.error('Local video play error:', err));
             }
             
+            // Добавляем треки после установки remote description
             stream.getTracks().forEach(track => {
-                console.log('Adding local track:', track.kind);
+                console.log('Adding local track:', track.kind, 'enabled:', track.enabled);
                 pc.addTrack(track, stream);
             });
 
@@ -280,10 +289,10 @@ export default function Messenger() {
             await pc.setLocalDescription(answer);
             console.log('Set local description:', pc.localDescription);
 
-            socketRef.current.send(JSON.stringify({
+            socketRef.current.send(JSON.stringify({ 
                 type: 'answer',
                 answer: pc.localDescription?.toJSON(),
-                author: user_id
+                author: user_id 
             }));
 
             setIsCalling(true);
@@ -493,6 +502,7 @@ export default function Messenger() {
                     }
                 } else if (msgType === 'ice-candidate' && data.author !== user_id) {
                     if (peerConnectionRef.current && data.candidate) {
+                        console.log('Adding ICE candidate:', data.candidate);
                         peerConnectionRef.current.addIceCandidate(
                             new RTCIceCandidate(data.candidate)
                         ).catch(err => console.error('Error adding ICE candidate:', err));
