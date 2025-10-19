@@ -23,11 +23,6 @@ export const getTurnServers = async (): Promise<RTCIceServer[]> => {
     }
 
     const data: TurnCredentials = await response.json();
-    
-    console.log('TURN credentials received:', {
-      username: data.username,
-      uris: data.uris
-    });
 
     // Формируем конфигурацию ICE серверов
     const iceServers: RTCIceServer[] = [
