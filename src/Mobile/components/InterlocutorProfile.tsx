@@ -12,7 +12,7 @@ export default function InterlocutorProfile({interlocutorId, showButton=true}: {
     const [name, setName] = useState<string>('');
 
     const handleGoBack = () => {
-        navigate('/friends');
+        navigate(-1);
     }
 
     useEffect(() => {
@@ -22,20 +22,25 @@ export default function InterlocutorProfile({interlocutorId, showButton=true}: {
         }
 
         const CancelToken = axios.CancelToken.source();
-        const url = `${getServerUrl()}/get-username/${interlocutorId}`;
         
-        axios.get(url, { cancelToken: CancelToken.token })
+        // Сначала пробуем получить из /users/{id}
+        axios.get(`${getServerUrl()}/users/${interlocutorId}`, { cancelToken: CancelToken.token })
             .then((res) => {
-                setName(res.data);
+                setName(res.data.name);
             })
             .catch((error) => {
                 if (axios.isCancel(error)) return;
-                if (error.response?.status === 404) {
-                    setName('Пользователь не найден');
-                    return;
-                }
-                setName('Ошибка загрузки');
-            })
+                
+                // Если не получилось, пробуем /get-username/{id}
+                axios.get(`${getServerUrl()}/get-username/${interlocutorId}`, { cancelToken: CancelToken.token })
+                    .then((res) => {
+                        setName(res.data);
+                    })
+                    .catch((err) => {
+                        if (axios.isCancel(err)) return;
+                        setName('Пользователь #' + interlocutorId);
+                    });
+            });
         
         return () => {
             CancelToken.cancel();
