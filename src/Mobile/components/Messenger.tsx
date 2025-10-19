@@ -44,6 +44,7 @@ export default function MobileMessenger() {
     const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
     const hangupProcessingRef = useRef(false);
     const callTimeoutRef = useRef<number | null>(null);
+    const statsIntervalRef = useRef<number | null>(null);
 
     // Загружаем TURN credentials
     useEffect(() => {
@@ -94,7 +95,8 @@ export default function MobileMessenger() {
                 { urls: 'stun:stun4.l.google.com:19302' },
                 ...iceServers
             ],
-            iceCandidatePoolSize: 10
+            iceCandidatePoolSize: 10,
+            iceTransportPolicy: 'all'  // Изменено для разрешения всех типов, включая relay
         };
 
         const pc = new RTCPeerConnection(config);
@@ -111,12 +113,19 @@ export default function MobileMessenger() {
         };
 
         pc.ontrack = (event) => {
-            console.log('Received remote track:', event.track.kind);
-            setRemoteStream(event.streams[0]);
+            console.log('Received remote track:', event.track.kind, 'enabled:', event.track.enabled);
+            if (!remoteStream) {
+                const newStream = new MediaStream();
+                setRemoteStream(newStream);
+            }
+            remoteStream?.addTrack(event.track);
         };
 
         pc.oniceconnectionstatechange = () => {
             console.log('ICE state:', pc.iceConnectionState);
+            if (pc.iceConnectionState === 'completed') {
+                console.log('ICE completed - media should flow now');
+            }
             if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
                 hangup();
             }
@@ -130,6 +139,24 @@ export default function MobileMessenger() {
             console.log('Connection state:', pc.connectionState);
             if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
                 hangup();
+            }
+        };
+
+        pc.onnegotiationneeded = async () => {
+            console.log('Negotiation needed');
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                if (socketRef.current?.readyState === WebSocket.OPEN) {
+                    socketRef.current.send(JSON.stringify({
+                        type: 'offer',
+                        offer: pc.localDescription?.toJSON(),
+                        author: user_id,
+                        video: isVideoEnabled
+                    }));
+                }
+            } catch (err) {
+                console.error('Negotiation error:', err);
             }
         };
 
@@ -158,6 +185,7 @@ export default function MobileMessenger() {
 
             const pc = createPeerConnection();
             stream.getTracks().forEach(track => {
+                console.log('Adding local track:', track.kind);
                 pc.addTrack(track, stream);
             });
 
@@ -181,6 +209,38 @@ export default function MobileMessenger() {
                     hangup();
                 }
             }, 30000);
+
+            // Stats checking
+            statsIntervalRef.current = setInterval(async () => {
+                if (peerConnectionRef.current) {
+                    try {
+                        const stats = await peerConnectionRef.current.getStats();
+                        let transport: RTCStats | undefined;
+                        stats.forEach((report) => {
+                            if (report.type === 'transport') {
+                                transport = report;
+                            }
+                        });
+                        if (transport) {
+                            const pairId = (transport as any).selectedCandidatePairId;
+                            let pair: RTCStats | undefined;
+                            stats.forEach((report) => {
+                                if (report.id === pairId) {
+                                    pair = report;
+                                }
+                            });
+                            if (pair) {
+                                console.log('Bytes sent:', (pair as any).bytesSent, 'Bytes received:', (pair as any).bytesReceived);
+                                if ((pair as any).bytesSent > 0 || (pair as any).bytesReceived > 0) {
+                                    console.log('Media is flowing!');
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.error('Get stats error:', err);
+                    }
+                }
+            }, 5000);
 
         } catch (err) {
             console.error('Call error:', err);
@@ -211,6 +271,7 @@ export default function MobileMessenger() {
             }
             
             stream.getTracks().forEach(track => {
+                console.log('Adding local track:', track.kind);
                 pc.addTrack(track, stream);
             });
 
@@ -234,6 +295,38 @@ export default function MobileMessenger() {
                     hangup();
                 }
             }, 30000);
+
+            // Stats checking
+            statsIntervalRef.current = setInterval(async () => {
+                if (peerConnectionRef.current) {
+                    try {
+                        const stats = await peerConnectionRef.current.getStats();
+                        let transport: RTCStats | undefined;
+                        stats.forEach((report) => {
+                            if (report.type === 'transport') {
+                                transport = report;
+                            }
+                        });
+                        if (transport) {
+                            const pairId = (transport as any).selectedCandidatePairId;
+                            let pair: RTCStats | undefined;
+                            stats.forEach((report) => {
+                                if (report.id === pairId) {
+                                    pair = report;
+                                }
+                            });
+                            if (pair) {
+                                console.log('Bytes sent:', (pair as any).bytesSent, 'Bytes received:', (pair as any).bytesReceived);
+                                if ((pair as any).bytesSent > 0 || (pair as any).bytesReceived > 0) {
+                                    console.log('Media is flowing!');
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.error('Get stats error:', err);
+                    }
+                }
+            }, 5000);
 
         } catch (err) {
             console.error('Answer error:', err);
@@ -268,6 +361,11 @@ export default function MobileMessenger() {
         if (callTimeoutRef.current) {
             clearTimeout(callTimeoutRef.current);
             callTimeoutRef.current = null;
+        }
+
+        if (statsIntervalRef.current) {
+            clearInterval(statsIntervalRef.current);
+            statsIntervalRef.current = null;
         }
 
         if (peerConnectionRef.current) {
@@ -527,6 +625,7 @@ export default function MobileMessenger() {
                                 ref={remoteVideoRef} 
                                 autoPlay 
                                 playsInline
+                                muted={false}
                                 style={{ 
                                     maxWidth: '100%',
                                     maxHeight: '100%',
