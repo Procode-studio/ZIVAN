@@ -15,6 +15,7 @@ import MicOffIcon from '@mui/icons-material/MicOff';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff';
 import { getServerUrl, getWsUrl } from '../../config/serverConfig';
 import { getTurnServers } from '../../config/turnConfig';
+import ReloadButton from '../../components/ReloadButton';
 
 export default function Messenger() {
 
@@ -260,16 +261,13 @@ export default function Messenger() {
         if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
 
         try {
-            const pc = createPeerConnection();
-            await pc.setRemoteDescription(new RTCSessionDescription(offer));
-            console.log('Set remote description:', pc.remoteDescription);
-            
+            // Сначала получаем локальный медиа-поток
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: video, 
                 audio: true 
             });
             
-            console.log('Got local stream:', stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled })));
+            console.log('Got local stream for answer:', stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled })));
             setLocalStream(stream);
             setIsVideoEnabled(video);
             setIsAudioEnabled(true);
@@ -279,12 +277,20 @@ export default function Messenger() {
                 localVideoRef.current.play().catch(err => console.error('Local video play error:', err));
             }
             
-            // Добавляем треки после установки remote description
+            // Создаем peer connection
+            const pc = createPeerConnection();
+            
+            // Добавляем треки ДО установки remote description
             stream.getTracks().forEach(track => {
-                console.log('Adding local track:', track.kind, 'enabled:', track.enabled);
+                console.log('Adding local track before remote desc:', track.kind, 'enabled:', track.enabled);
                 pc.addTrack(track, stream);
             });
 
+            // Устанавливаем remote description
+            await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            console.log('Set remote description:', pc.remoteDescription);
+            
+            // Создаем и устанавливаем answer
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             console.log('Set local description:', pc.localDescription);
@@ -720,22 +726,29 @@ export default function Messenger() {
                 </DialogContent>
             </Dialog>
 
-            {/* Кнопки звонков */}
-            {interlocutorId !== -1 && !isCalling && !isIncomingCall && (
-                <div style={{ 
-                    display: 'flex', 
-                    gap: 10, 
-                    marginBottom: 10,
-                    padding: '0 10px'
-                }}>
-                    <IconButton onClick={() => startCall(false)} color="secondary" title="Аудио звонок">
-                        <PhoneIcon />
-                    </IconButton>
-                    <IconButton onClick={() => startCall(true)} color="secondary" title="Видео звонок">
-                        <VideocamIcon />
-                    </IconButton>
+            {/* Кнопки звонков и управления */}
+            <div style={{ 
+                display: 'flex', 
+                gap: 10, 
+                marginBottom: 10,
+                padding: '0 10px',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+            }}>
+                <div style={{ display: 'flex', gap: 10 }}>
+                    {interlocutorId !== -1 && !isCalling && !isIncomingCall && (
+                        <>
+                            <IconButton onClick={() => startCall(false)} color="secondary" title="Аудио звонок">
+                                <PhoneIcon />
+                            </IconButton>
+                            <IconButton onClick={() => startCall(true)} color="secondary" title="Видео звонок">
+                                <VideocamIcon />
+                            </IconButton>
+                        </>
+                    )}
                 </div>
-            )}
+                <ReloadButton title="Перезагрузить страницу при проблемах" size="small" />
+            </div>
             
             <section id='input'>
                 <TextField
