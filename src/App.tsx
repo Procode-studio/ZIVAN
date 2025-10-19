@@ -115,7 +115,7 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path='/' element={isLoggedIn ? <DefaultPage/> : <DesktopLoginPage/>} />
-              <Route path='/messenger/:id?' element={isLoggedIn ? <DesktopMessengerPage/> : <DesktopLoginPage/>} />  {/* Сделали :id optional */}
+              <Route path='/messenger/:id' element={isLoggedIn ? <DesktopMessengerPage/> : <DesktopLoginPage/>} />
               <Route path='/login' element={<DesktopLoginPage/>} />
             </Routes>
           </BrowserRouter>

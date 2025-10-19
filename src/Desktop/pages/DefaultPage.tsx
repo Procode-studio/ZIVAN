@@ -1,16 +1,17 @@
-import CheckAuth from "../features/checkAuth";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { isMobile } from 'react-device-detect';
 
 export default function DefaultPage() {
-
     const navigate = useNavigate();
 
     useEffect(() => {
-        navigate('/messenger');
+        if (isMobile) {
+            navigate('/friends');
+        } else {
+            navigate('/messenger/-1');
+        }
     }, [navigate]);
-
-    CheckAuth();
 
     return null;
 }
