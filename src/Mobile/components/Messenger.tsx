@@ -348,7 +348,32 @@ export default function MobileMessenger() {
                         ).catch(err => console.error('Error adding ICE candidate'));
                     }
                 } else if (msgType === 'hangup' && data.author !== user_id) {
-                    hangup();
+                    // Предотвращаем бесконечный цикл
+                    if (!hangupProcessingRef.current) {
+                        hangupProcessingRef.current = true;
+                        
+                        // Закрываем соединение без отправки нового hangup
+                        if (peerConnectionRef.current) {
+                            peerConnectionRef.current.close();
+                            peerConnectionRef.current = null;
+                        }
+                        
+                        if (localStream) {
+                            localStream.getTracks().forEach(track => track.stop());
+                            setLocalStream(null);
+                        }
+                        
+                        setRemoteStream(null);
+                        setIsCalling(false);
+                        setIsIncomingCall(false);
+                        setIsVideoEnabled(false);
+                        setIsAudioEnabled(true);
+                        
+                        // Сбрасываем флаг через небольшую задержку
+                        setTimeout(() => {
+                            hangupProcessingRef.current = false;
+                        }, 1000);
+                    }
                 }
                 
                 setTimeout(() => {
@@ -444,22 +469,22 @@ export default function MobileMessenger() {
             >
                 <DialogContent sx={{ p: 0, position: 'relative', height: '100vh', display: 'flex', flexDirection: 'column' }}>
                     {/* Remote video/avatar */}
-                    <Box sx={{ flex: 1, position: 'relative', backgroundColor: '#000' }}>
+                    <Box sx={{ flex: 1, position: 'relative', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
                             <video 
                                 ref={remoteVideoRef} 
                                 autoPlay 
                                 playsInline
                                 style={{ 
-                                    width: '100%', 
-                                    height: '100%',
-                                    objectFit: 'cover'
+                                    maxWidth: '100%',
+                                    maxHeight: '100%',
+                                    width: 'auto',
+                                    height: 'auto',
+                                    objectFit: 'contain'
                                 }} 
                             />
                         ) : (
                             <Box sx={{ 
-                                width: '100%', 
-                                height: '100%', 
                                 display: 'flex', 
                                 flexDirection: 'column',
                                 alignItems: 'center', 
@@ -471,6 +496,9 @@ export default function MobileMessenger() {
                                 </Avatar>
                                 <Typography variant="h5" color="white">
                                     {interlocutorName}
+                                </Typography>
+                                <Typography variant="body2" color="grey.400">
+                                    {remoteStream ? 'Камера выключена' : 'Соединение...'}
                                 </Typography>
                             </Box>
                         )}
@@ -486,8 +514,9 @@ export default function MobileMessenger() {
                             height: 160,
                             borderRadius: 2,
                             overflow: 'hidden',
-                            border: '2px solid #fff',
-                            boxShadow: 3
+                            border: '2px solid #4CAF50',
+                            boxShadow: 3,
+                            backgroundColor: '#000'
                         }}>
                             <video 
                                 ref={localVideoRef} 

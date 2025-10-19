@@ -465,22 +465,22 @@ export default function Messenger() {
             >
                 <DialogContent sx={{ p: 0, position: 'relative', height: '100vh', display: 'flex', flexDirection: 'column' }}>
                     {/* Remote video/avatar */}
-                    <Box sx={{ flex: 1, position: 'relative', backgroundColor: '#000' }}>
+                    <Box sx={{ flex: 1, position: 'relative', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
                             <video 
                                 ref={remoteVideoRef} 
                                 autoPlay 
                                 playsInline
                                 style={{ 
-                                    width: '100%', 
-                                    height: '100%',
-                                    objectFit: 'cover'
+                                    maxWidth: '100%',
+                                    maxHeight: '100%',
+                                    width: 'auto',
+                                    height: 'auto',
+                                    objectFit: 'contain'
                                 }} 
                             />
                         ) : (
                             <Box sx={{ 
-                                width: '100%', 
-                                height: '100%', 
                                 display: 'flex', 
                                 flexDirection: 'column',
                                 alignItems: 'center', 
@@ -493,6 +493,9 @@ export default function Messenger() {
                                 <Typography variant="h5" color="white">
                                     {interlocutorName}
                                 </Typography>
+                                <Typography variant="body2" color="grey.400">
+                                    {remoteStream ? 'Камера выключена' : 'Соединение...'}
+                                </Typography>
                             </Box>
                         )}
                     </Box>
@@ -503,12 +506,13 @@ export default function Messenger() {
                             position: 'absolute', 
                             top: 20, 
                             right: 20, 
-                            width: 240, 
-                            height: 180,
+                            width: { xs: 120, sm: 200, md: 240 },
+                            height: { xs: 90, sm: 150, md: 180 },
                             borderRadius: 2,
                             overflow: 'hidden',
-                            border: '2px solid #fff',
-                            boxShadow: 3
+                            border: '2px solid #4CAF50',
+                            boxShadow: 3,
+                            backgroundColor: '#000'
                         }}>
                             <video 
                                 ref={localVideoRef} 
