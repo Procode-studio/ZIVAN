@@ -42,6 +42,7 @@ export default function MobileMessenger() {
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const [iceServers, setIceServers] = useState<RTCIceServer[]>([]);
     const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
+    const hangupProcessingRef = useRef(false);
 
     // Загружаем TURN credentials
     useEffect(() => {
