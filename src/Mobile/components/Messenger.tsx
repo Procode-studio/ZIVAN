@@ -43,6 +43,7 @@ export default function MobileMessenger() {
     const [iceServers, setIceServers] = useState<RTCIceServer[]>([]);
     const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
     const hangupProcessingRef = useRef(false);
+    const callTimeoutRef = useRef<number | null>(null);
 
     // Загружаем TURN credentials
     useEffect(() => {
@@ -85,8 +86,13 @@ export default function MobileMessenger() {
 
     const createPeerConnection = () => {
         const config: RTCConfiguration = {
-            iceServers: iceServers.length > 0 ? iceServers : [
-                { urls: 'stun:stun.l.google.com:19302' }
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+                ...iceServers
             ],
             iceCandidatePoolSize: 10
         };
@@ -94,6 +100,7 @@ export default function MobileMessenger() {
         const pc = new RTCPeerConnection(config);
         
         pc.onicecandidate = (event) => {
+            console.log('New ICE candidate:', event.candidate);
             if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
                 socketRef.current.send(JSON.stringify({
                     type: 'ice-candidate',
@@ -104,10 +111,23 @@ export default function MobileMessenger() {
         };
 
         pc.ontrack = (event) => {
+            console.log('Received remote track:', event.track.kind);
             setRemoteStream(event.streams[0]);
         };
 
+        pc.oniceconnectionstatechange = () => {
+            console.log('ICE state:', pc.iceConnectionState);
+            if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+                hangup();
+            }
+        };
+
+        pc.onsignalingstatechange = () => {
+            console.log('Signaling state:', pc.signalingState);
+        };
+
         pc.onconnectionstatechange = () => {
+            console.log('Connection state:', pc.connectionState);
             if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
                 hangup();
             }
@@ -133,6 +153,7 @@ export default function MobileMessenger() {
             
             if (localVideoRef.current) {
                 localVideoRef.current.srcObject = stream;
+                localVideoRef.current.play().catch(err => console.error('Local video play error:', err));
             }
 
             const pc = createPeerConnection();
@@ -142,6 +163,7 @@ export default function MobileMessenger() {
 
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
+            console.log('Set local description:', pc.localDescription);
 
             socketRef.current.send(JSON.stringify({
                 type: 'offer',
@@ -151,6 +173,15 @@ export default function MobileMessenger() {
             }));
             
             setIsCalling(true);
+
+            // Timeout for connection
+            callTimeoutRef.current = setTimeout(() => {
+                if (!remoteStream) {
+                    alert('Не удалось установить соединение. Попробуйте снова.');
+                    hangup();
+                }
+            }, 30000);
+
         } catch (err) {
             console.error('Call error:', err);
             alert('Не удалось начать звонок. Проверьте разрешения камеры/микрофона.');
@@ -163,6 +194,7 @@ export default function MobileMessenger() {
         try {
             const pc = createPeerConnection();
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            console.log('Set remote description:', pc.remoteDescription);
             
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: video, 
@@ -175,6 +207,7 @@ export default function MobileMessenger() {
             
             if (localVideoRef.current) {
                 localVideoRef.current.srcObject = stream;
+                localVideoRef.current.play().catch(err => console.error('Local video play error:', err));
             }
             
             stream.getTracks().forEach(track => {
@@ -183,6 +216,7 @@ export default function MobileMessenger() {
 
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+            console.log('Set local description:', pc.localDescription);
 
             socketRef.current.send(JSON.stringify({
                 type: 'answer',
@@ -192,6 +226,15 @@ export default function MobileMessenger() {
 
             setIsCalling(true);
             setIsIncomingCall(false);
+
+            // Timeout for connection
+            callTimeoutRef.current = setTimeout(() => {
+                if (!remoteStream) {
+                    alert('Не удалось установить соединение. Попробуйте снова.');
+                    hangup();
+                }
+            }, 30000);
+
         } catch (err) {
             console.error('Answer error:', err);
             setIsIncomingCall(false);
@@ -220,6 +263,13 @@ export default function MobileMessenger() {
     };
 
     const hangup = () => {
+        console.log('Hangup called, connection state:', peerConnectionRef.current?.connectionState);
+        
+        if (callTimeoutRef.current) {
+            clearTimeout(callTimeoutRef.current);
+            callTimeoutRef.current = null;
+        }
+
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
@@ -315,6 +365,7 @@ export default function MobileMessenger() {
         };
 
         newSocket.onmessage = (event) => {
+            console.log('WS message received:', event.data);
             try {
                 const data = JSON.parse(event.data);
                 const msgType = data.type || 'message';
@@ -339,13 +390,13 @@ export default function MobileMessenger() {
                     if (peerConnectionRef.current) {
                         peerConnectionRef.current.setRemoteDescription(
                             new RTCSessionDescription(data.answer)
-                        ).catch(err => console.error('Error setting remote description'));
+                        ).catch(err => console.error('Error setting remote description:', err));
                     }
                 } else if (msgType === 'ice-candidate' && data.author !== user_id) {
                     if (peerConnectionRef.current && data.candidate) {
                         peerConnectionRef.current.addIceCandidate(
                             new RTCIceCandidate(data.candidate)
-                        ).catch(err => console.error('Error adding ICE candidate'));
+                        ).catch(err => console.error('Error adding ICE candidate:', err));
                     }
                 } else if (msgType === 'hangup' && data.author !== user_id) {
                     // Предотвращаем бесконечный цикл
@@ -380,7 +431,7 @@ export default function MobileMessenger() {
                     messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current.scrollHeight);
                 }, 10);
             } catch (error) {
-                console.error('Error processing message');
+                console.error('Error processing message:', error);
             }
         };
 
@@ -404,6 +455,7 @@ export default function MobileMessenger() {
     useEffect(() => {
         if (remoteVideoRef.current && remoteStream) {
             remoteVideoRef.current.srcObject = remoteStream;
+            remoteVideoRef.current.play().catch(err => console.error('Remote video play error:', err));
         }
     }, [remoteStream]);
 
@@ -480,7 +532,7 @@ export default function MobileMessenger() {
                                     maxHeight: '100%',
                                     width: 'auto',
                                     height: 'auto',
-                                    objectFit: 'contain'
+                                    objectFit: 'cover'  // Изменено на cover для лучшей видимости
                                 }} 
                             />
                         ) : (
