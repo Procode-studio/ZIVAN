@@ -83,6 +83,7 @@ export default function Messenger() {
     };
 
     const createPeerConnection = () => {
+        console.log('[RTC][Desktop] creating RTCPeerConnection with iceServers:', iceServers);
         const config: RTCConfiguration = {
             iceServers: (iceServers && iceServers.length > 0)
                 ? iceServers
@@ -96,6 +97,7 @@ export default function Messenger() {
         const pc = new RTCPeerConnection(config);
 
         pc.onicecandidate = (e) => {
+            console.log('[RTC][Desktop] onicecandidate:', e.candidate ? e.candidate.candidate : null);
             if (e.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
                 socketRef.current.send(JSON.stringify({
                     type: 'ice-candidate',
@@ -106,21 +108,28 @@ export default function Messenger() {
         };
 
         pc.ontrack = (e) => {
+            console.log('[RTC][Desktop] ontrack:', e.track?.kind, 'streams count:', e.streams?.length || 0);
             // Build composite remote stream to handle cases where event.streams may be empty
             if (!remoteCompositeStreamRef.current) {
                 remoteCompositeStreamRef.current = new MediaStream();
             }
             const remoteStreamLocal = remoteCompositeStreamRef.current;
             if (e.track && !remoteStreamLocal.getTracks().includes(e.track)) {
+                console.log('[RTC][Desktop] add remote track to composite:', e.track.kind);
                 remoteStreamLocal.addTrack(e.track);
             }
             setRemoteStream(remoteStreamLocal);
         };
 
         pc.onconnectionstatechange = () => {
+            console.log('[RTC][Desktop] connectionState:', pc.connectionState);
             if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
                 hangup();
             }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+            console.log('[RTC][Desktop] iceConnectionState:', pc.iceConnectionState);
         };
 
         peerConnectionRef.current = pc;
@@ -132,20 +141,23 @@ export default function Messenger() {
         if (interlocutorId === -1 || !socketRef.current) return;
 
         try {
+            console.log('[RTC][Desktop] getUserMedia start video=', video);
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: video,
                 audio: true
             });
-
+            console.log('[RTC][Desktop] getUserMedia success: tracks', stream.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}`));
             setLocalStream(stream);
             setIsVideoEnabled(video);
             setIsAudioEnabled(true);
 
             const pc = createPeerConnection();
-            stream.getTracks().forEach(t => pc.addTrack(t, stream));
+            stream.getTracks().forEach(t => { console.log('[RTC][Desktop] addTrack local:', t.kind); pc.addTrack(t, stream); });
 
             const offer = await pc.createOffer();
+            console.log('[RTC][Desktop] createOffer done');
             await pc.setLocalDescription(offer);
+            console.log('[RTC][Desktop] setLocalDescription(offer)');
 
             socketRef.current.send(JSON.stringify({
                 type: 'offer',
@@ -153,9 +165,11 @@ export default function Messenger() {
                 author: user_id,
                 video: video
             }));
+            console.log('[RTC][Desktop] sent offer');
 
             setIsCalling(true);
         } catch (err) {
+            console.error('[RTC][Desktop] startCall error', err);
             alert('Не удалось начать звонок');
         }
     };
@@ -164,41 +178,44 @@ export default function Messenger() {
         if (!socketRef.current) return;
 
         try {
+            console.log('[RTC][Desktop] answerCall: setRemoteDescription(offer)');
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: video,
                 audio: true
             });
-
+            console.log('[RTC][Desktop] getUserMedia(answer) success: tracks', stream.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}`));
             setLocalStream(stream);
             setIsVideoEnabled(video);
             setIsAudioEnabled(true);
 
             const pc = createPeerConnection();
-            stream.getTracks().forEach(t => pc.addTrack(t, stream));
+            stream.getTracks().forEach(t => { console.log('[RTC][Desktop] addTrack local(answer):', t.kind); pc.addTrack(t, stream); });
 
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
             remoteDescriptionSetRef.current = true;
-            // flush any queued candidates
+            console.log('[RTC][Desktop] setRemoteDescription(offer) done; flushing pending candidates:', pendingRemoteCandidatesRef.current.length);
             if (pendingRemoteCandidatesRef.current.length > 0) {
                 for (const c of pendingRemoteCandidatesRef.current) {
-                    try {
-                        await pc.addIceCandidate(new RTCIceCandidate(c));
-                    } catch {}
+                    try { await pc.addIceCandidate(new RTCIceCandidate(c)); console.log('[RTC][Desktop] flushed ICE'); } catch (e) { console.warn('[RTC][Desktop] flush ICE error', e); }
                 }
                 pendingRemoteCandidatesRef.current = [];
             }
             const answer = await pc.createAnswer();
+            console.log('[RTC][Desktop] createAnswer done');
             await pc.setLocalDescription(answer);
+            console.log('[RTC][Desktop] setLocalDescription(answer)');
 
             socketRef.current.send(JSON.stringify({
                 type: 'answer',
                 answer: pc.localDescription?.toJSON() || answer,
                 author: user_id
             }));
+            console.log('[RTC][Desktop] sent answer');
 
             setIsCalling(true);
             setIsIncomingCall(false);
         } catch (err) {
+            console.error('[RTC][Desktop] answerCall error', err);
             alert('Не удалось ответить');
             setIsIncomingCall(false);
         }
@@ -226,12 +243,14 @@ export default function Messenger() {
 
     const hangup = () => {
         if (peerConnectionRef.current) {
+            console.log('[RTC][Desktop] hangup: closing RTCPeerConnection');
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
         }
 
         if (localStream) {
-            localStream.getTracks().forEach(t => t.stop());
+            console.log('[RTC][Desktop] hangup: stopping local tracks');
+            localStream.getTracks().forEach(t => { try { t.stop(); } catch {} });
             setLocalStream(null);
         }
 
@@ -243,6 +262,7 @@ export default function Messenger() {
         setIsAudioEnabled(true);
 
         if (socketRef.current?.readyState === WebSocket.OPEN) {
+            console.log('[RTC][Desktop] hangup: sending hangup');
             socketRef.current.send(JSON.stringify({
                 type: 'hangup',
                 author: user_id
@@ -299,14 +319,17 @@ export default function Messenger() {
 
         const id1 = Math.min(user_id, interlocutorId);
         const id2 = Math.max(user_id, interlocutorId);
-        const ws = new WebSocket(`${getWsUrl()}/me/ws/${id1}/${id2}`);
+        const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}`;
+        console.log('[WS][Desktop] connecting', wsUrl);
+        const ws = new WebSocket(wsUrl);
 
-        ws.onopen = () => { socketRef.current = ws; };
+        ws.onopen = () => { socketRef.current = ws; console.log('[WS][Desktop] open'); };
 
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
                 const type = data.type || 'message';
+                console.log('[WS][Desktop] message', type, data);
 
                 if (type === 'message') {
                     setMessages(prev => [...prev, {
@@ -324,16 +347,17 @@ export default function Messenger() {
                 } else if (type === 'answer' && data.author !== user_id) {
                     if (peerConnectionRef.current) {
                         peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer))
-                            .then(() => { remoteDescriptionSetRef.current = true; })
-                            .catch(() => {});
+                            .then(() => { remoteDescriptionSetRef.current = true; console.log('[RTC][Desktop] setRemoteDescription(answer)'); })
+                            .catch((e) => { console.warn('[RTC][Desktop] setRemoteDescription(answer) error', e); });
                     }
                 } else if (type === 'ice-candidate' && data.author !== user_id) {
                     if (peerConnectionRef.current && data.candidate) {
                         // If remote description not set yet, queue the candidates
                         if (!remoteDescriptionSetRef.current) {
+                            console.log('[RTC][Desktop] queue remote ICE');
                             pendingRemoteCandidatesRef.current.push(data.candidate);
                         } else {
-                            peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
+                            peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate)).then(() => console.log('[RTC][Desktop] addIceCandidate ok')).catch((e) => { console.warn('[RTC][Desktop] addIceCandidate error', e); });
                         }
                     }
                 } else if (type === 'hangup' && data.author !== user_id) {
@@ -344,10 +368,11 @@ export default function Messenger() {
             } catch (e) {}
         };
 
-        ws.onclose = () => { socketRef.current = null; };
+        ws.onclose = () => { socketRef.current = null; console.log('[WS][Desktop] close'); };
 
         return () => {
             if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                console.log('[WS][Desktop] closing');
                 ws.close();
             }
         };

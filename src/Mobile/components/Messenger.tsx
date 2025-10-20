@@ -88,6 +88,7 @@ export default function MobileMessenger() {
     };
 
     const createPeerConnection = () => {
+        console.log('[RTC][Mobile] creating RTCPeerConnection with iceServers:', iceServers);
         const config: RTCConfiguration = {
             iceServers: (iceServers && iceServers.length > 0)
                 ? iceServers
@@ -101,6 +102,7 @@ export default function MobileMessenger() {
         const pc = new RTCPeerConnection(config);
         
         pc.onicecandidate = (event) => {
+            console.log('[RTC][Mobile] onicecandidate:', event.candidate ? event.candidate.candidate : null);
             if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
                 socketRef.current.send(JSON.stringify({
                     type: 'ice-candidate',
@@ -111,20 +113,27 @@ export default function MobileMessenger() {
         };
 
         pc.ontrack = (event) => {
+            console.log('[RTC][Mobile] ontrack:', event.track?.kind, 'streams count:', event.streams?.length || 0);
             if (!remoteCompositeStreamRef.current) {
                 remoteCompositeStreamRef.current = new MediaStream();
             }
             const composite = remoteCompositeStreamRef.current;
             if (event.track && !composite.getTracks().includes(event.track)) {
+                console.log('[RTC][Mobile] add remote track to composite:', event.track.kind);
                 composite.addTrack(event.track);
             }
             setRemoteStream(composite);
         };
 
         pc.onconnectionstatechange = () => {
+            console.log('[RTC][Mobile] connectionState:', pc.connectionState);
             if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
                 hangup();
             }
+        };
+        
+        pc.oniceconnectionstatechange = () => {
+            console.log('[RTC][Mobile] iceConnectionState:', pc.iceConnectionState);
         };
 
         peerConnectionRef.current = pc;
@@ -137,11 +146,12 @@ export default function MobileMessenger() {
         if (socketRef.current.readyState !== WebSocket.OPEN) return;
 
         try {
+            console.log('[RTC][Mobile] getUserMedia start video=', video);
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: video,
                 audio: true
             });
-            
+            console.log('[RTC][Mobile] getUserMedia success: tracks', stream.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}`));
             setLocalStream(stream);
             setIsVideoEnabled(video);
             setIsAudioEnabled(true);
@@ -151,12 +161,12 @@ export default function MobileMessenger() {
             }
 
             const pc = createPeerConnection();
-            stream.getTracks().forEach(track => {
-                pc.addTrack(track, stream);
-            });
+            stream.getTracks().forEach(track => { console.log('[RTC][Mobile] addTrack local:', track.kind); pc.addTrack(track, stream); });
 
             const offer = await pc.createOffer();
+            console.log('[RTC][Mobile] createOffer done');
             await pc.setLocalDescription(offer);
+            console.log('[RTC][Mobile] setLocalDescription(offer)');
 
             socketRef.current.send(JSON.stringify({
                 type: 'offer',
@@ -164,10 +174,11 @@ export default function MobileMessenger() {
                 author: user_id,
                 video: video
             }));
+            console.log('[RTC][Mobile] sent offer');
             
             setIsCalling(true);
         } catch (err) {
-            console.error('Call error:', err);
+            console.error('[RTC][Mobile] startCall error', err);
             alert('Не удалось начать звонок. Проверьте разрешения камеры/микрофона.');
         }
     };
@@ -179,10 +190,11 @@ export default function MobileMessenger() {
             const pc = createPeerConnection();
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
             remoteDescriptionSetRef.current = true;
+            console.log('[RTC][Mobile] setRemoteDescription(offer) done; flushing pending candidates:', pendingRemoteCandidatesRef.current.length);
             // flush queued candidates if any
             if (pendingRemoteCandidatesRef.current.length > 0) {
                 for (const c of pendingRemoteCandidatesRef.current) {
-                    try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+                    try { await pc.addIceCandidate(new RTCIceCandidate(c)); console.log('[RTC][Mobile] flushed ICE'); } catch (e) { console.warn('[RTC][Mobile] flush ICE error', e); }
                 }
                 pendingRemoteCandidatesRef.current = [];
             }
@@ -192,6 +204,7 @@ export default function MobileMessenger() {
                 audio: true 
             });
             
+            console.log('[RTC][Mobile] getUserMedia(answer) success: tracks', stream.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}`));
             setLocalStream(stream);
             setIsVideoEnabled(video);
             setIsAudioEnabled(true);
@@ -200,23 +213,24 @@ export default function MobileMessenger() {
                 localVideoRef.current.srcObject = stream;
             }
             
-            stream.getTracks().forEach(track => {
-                pc.addTrack(track, stream);
-            });
+            stream.getTracks().forEach(track => { console.log('[RTC][Mobile] addTrack local(answer):', track.kind); pc.addTrack(track, stream); });
 
             const answer = await pc.createAnswer();
+            console.log('[RTC][Mobile] createAnswer done');
             await pc.setLocalDescription(answer);
+            console.log('[RTC][Mobile] setLocalDescription(answer)');
 
             socketRef.current.send(JSON.stringify({
                 type: 'answer',
                 answer: pc.localDescription?.toJSON() || answer,
                 author: user_id
             }));
+            console.log('[RTC][Mobile] sent answer');
 
             setIsCalling(true);
             setIsIncomingCall(false);
         } catch (err) {
-            console.error('Answer error:', err);
+            console.error('[RTC][Mobile] answerCall error', err);
             setIsIncomingCall(false);
             alert('Не удалось ответить на звонок');
         }
@@ -244,12 +258,14 @@ export default function MobileMessenger() {
 
     const hangup = () => {
         if (peerConnectionRef.current) {
+            console.log('[RTC][Mobile] hangup: closing RTCPeerConnection');
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
         }
         
         if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
+            console.log('[RTC][Mobile] hangup: stopping local tracks');
+            localStream.getTracks().forEach(track => { try { track.stop(); } catch {} });
             setLocalStream(null);
         }
         
@@ -261,6 +277,7 @@ export default function MobileMessenger() {
         setIsAudioEnabled(true);
         
         if (socketRef.current?.readyState === WebSocket.OPEN) {
+            console.log('[RTC][Mobile] hangup: sending hangup');
             socketRef.current.send(JSON.stringify({ 
                 type: 'hangup', 
                 author: user_id 
@@ -331,17 +348,20 @@ export default function MobileMessenger() {
         const id1 = Math.min(user_id, interlocutorId);
         const id2 = Math.max(user_id, interlocutorId);
         const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}`;
+        console.log('[WS][Mobile] connecting', wsUrl);
         
         const newSocket = new WebSocket(wsUrl);
 
         newSocket.onopen = () => {
             socketRef.current = newSocket;
+            console.log('[WS][Mobile] open');
         };
 
         newSocket.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
                 const msgType = data.type || 'message';
+                console.log('[WS][Mobile] message', msgType, data);
 
                 if (msgType === 'message') {
                     setMessages((prevMessages) => [
@@ -363,17 +383,18 @@ export default function MobileMessenger() {
                     if (peerConnectionRef.current) {
                         peerConnectionRef.current.setRemoteDescription(
                             new RTCSessionDescription(data.answer)
-                        ).then(() => { remoteDescriptionSetRef.current = true; })
-                         .catch(() => {});
+                        ).then(() => { remoteDescriptionSetRef.current = true; console.log('[RTC][Mobile] setRemoteDescription(answer)'); })
+                         .catch((e) => { console.warn('[RTC][Mobile] setRemoteDescription(answer) error', e); });
                     }
                 } else if (msgType === 'ice-candidate' && data.author !== user_id) {
                     if (peerConnectionRef.current && data.candidate) {
                         if (!remoteDescriptionSetRef.current) {
+                            console.log('[RTC][Mobile] queue remote ICE');
                             pendingRemoteCandidatesRef.current.push(data.candidate);
                         } else {
                             peerConnectionRef.current.addIceCandidate(
                                 new RTCIceCandidate(data.candidate)
-                            ).catch(() => {});
+                            ).then(() => console.log('[RTC][Mobile] addIceCandidate ok')).catch((e) => { console.warn('[RTC][Mobile] addIceCandidate error', e); });
                         }
                     }
                 } else if (msgType === 'hangup' && data.author !== user_id) {
@@ -414,15 +435,17 @@ export default function MobileMessenger() {
         };
 
         newSocket.onerror = () => {
-            console.error('WebSocket error');
+            console.error('[WS][Mobile] error');
         };
 
         newSocket.onclose = () => {
             socketRef.current = null;
+            console.log('[WS][Mobile] close');
         };
 
         return () => {
             if (newSocket.readyState === WebSocket.OPEN || newSocket.readyState === WebSocket.CONNECTING) {
+                console.log('[WS][Mobile] closing');
                 newSocket.close(1000, 'Unmounting');
             }
             socketRef.current = null;
