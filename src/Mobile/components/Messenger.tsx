@@ -33,6 +33,7 @@ export default function MobileMessenger() {
     const [incomingCallVideo, setIncomingCallVideo] = useState(false);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+    const remoteCompositeStreamRef = useRef<MediaStream | null>(null);
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isAudioEnabled, setIsAudioEnabled] = useState(true);
     const [interlocutorName, setInterlocutorName] = useState<string>('');
@@ -110,7 +111,14 @@ export default function MobileMessenger() {
         };
 
         pc.ontrack = (event) => {
-            setRemoteStream(event.streams[0]);
+            if (!remoteCompositeStreamRef.current) {
+                remoteCompositeStreamRef.current = new MediaStream();
+            }
+            const composite = remoteCompositeStreamRef.current;
+            if (event.track && !composite.getTracks().includes(event.track)) {
+                composite.addTrack(event.track);
+            }
+            setRemoteStream(composite);
         };
 
         pc.onconnectionstatechange = () => {
@@ -246,6 +254,7 @@ export default function MobileMessenger() {
         }
         
         setRemoteStream(null);
+        remoteCompositeStreamRef.current = null;
         setIsCalling(false);
         setIsIncomingCall(false);
         setIsVideoEnabled(false);

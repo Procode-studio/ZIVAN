@@ -33,6 +33,7 @@ export default function Messenger() {
     const [incomingCallVideo, setIncomingCallVideo] = useState(false);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+    const remoteCompositeStreamRef = useRef<MediaStream | null>(null);
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isAudioEnabled, setIsAudioEnabled] = useState(true);
     const [interlocutorName, setInterlocutorName] = useState('');
@@ -105,9 +106,15 @@ export default function Messenger() {
         };
 
         pc.ontrack = (e) => {
-            if (e.streams && e.streams[0]) {
-                setRemoteStream(e.streams[0]);
+            // Build composite remote stream to handle cases where event.streams may be empty
+            if (!remoteCompositeStreamRef.current) {
+                remoteCompositeStreamRef.current = new MediaStream();
             }
+            const remoteStreamLocal = remoteCompositeStreamRef.current;
+            if (e.track && !remoteStreamLocal.getTracks().includes(e.track)) {
+                remoteStreamLocal.addTrack(e.track);
+            }
+            setRemoteStream(remoteStreamLocal);
         };
 
         pc.onconnectionstatechange = () => {
@@ -229,6 +236,7 @@ export default function Messenger() {
         }
 
         setRemoteStream(null);
+        remoteCompositeStreamRef.current = null;
         setIsCalling(false);
         setIsIncomingCall(false);
         setIsVideoEnabled(false);
