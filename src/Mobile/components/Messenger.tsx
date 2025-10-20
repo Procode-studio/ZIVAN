@@ -44,6 +44,8 @@ export default function MobileMessenger() {
     const [iceServers, setIceServers] = useState<RTCIceServer[]>([]);
     const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
     const hangupProcessingRef = useRef(false);
+    const pendingRemoteCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+    const remoteDescriptionSetRef = useRef(false);
 
     // Загружаем TURN credentials
     useEffect(() => {
@@ -86,9 +88,12 @@ export default function MobileMessenger() {
 
     const createPeerConnection = () => {
         const config: RTCConfiguration = {
-            iceServers: iceServers.length > 0 ? iceServers : [
-                { urls: 'stun:stun.l.google.com:19302' }
-            ],
+            iceServers: (iceServers && iceServers.length > 0)
+                ? iceServers
+                : [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ],
             iceCandidatePoolSize: 10
         };
 
@@ -115,6 +120,7 @@ export default function MobileMessenger() {
         };
 
         peerConnectionRef.current = pc;
+        remoteDescriptionSetRef.current = false;
         return pc;
     };
 
@@ -146,7 +152,7 @@ export default function MobileMessenger() {
 
             socketRef.current.send(JSON.stringify({
                 type: 'offer',
-                offer: pc.localDescription?.toJSON(),
+                offer: pc.localDescription?.toJSON() || offer,
                 author: user_id,
                 video: video
             }));
@@ -164,6 +170,14 @@ export default function MobileMessenger() {
         try {
             const pc = createPeerConnection();
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            remoteDescriptionSetRef.current = true;
+            // flush queued candidates if any
+            if (pendingRemoteCandidatesRef.current.length > 0) {
+                for (const c of pendingRemoteCandidatesRef.current) {
+                    try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+                }
+                pendingRemoteCandidatesRef.current = [];
+            }
             
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: video, 
@@ -187,7 +201,7 @@ export default function MobileMessenger() {
 
             socketRef.current.send(JSON.stringify({
                 type: 'answer',
-                answer: pc.localDescription?.toJSON(),
+                answer: pc.localDescription?.toJSON() || answer,
                 author: user_id
             }));
 
@@ -340,13 +354,18 @@ export default function MobileMessenger() {
                     if (peerConnectionRef.current) {
                         peerConnectionRef.current.setRemoteDescription(
                             new RTCSessionDescription(data.answer)
-                        ).catch(err => console.error('Error setting remote description'));
+                        ).then(() => { remoteDescriptionSetRef.current = true; })
+                         .catch(() => {});
                     }
                 } else if (msgType === 'ice-candidate' && data.author !== user_id) {
                     if (peerConnectionRef.current && data.candidate) {
-                        peerConnectionRef.current.addIceCandidate(
-                            new RTCIceCandidate(data.candidate)
-                        ).catch(err => console.error('Error adding ICE candidate'));
+                        if (!remoteDescriptionSetRef.current) {
+                            pendingRemoteCandidatesRef.current.push(data.candidate);
+                        } else {
+                            peerConnectionRef.current.addIceCandidate(
+                                new RTCIceCandidate(data.candidate)
+                            ).catch(() => {});
+                        }
                     }
                 } else if (msgType === 'hangup' && data.author !== user_id) {
                     // Предотвращаем бесконечный цикл
