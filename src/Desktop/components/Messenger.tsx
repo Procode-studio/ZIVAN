@@ -151,33 +151,63 @@ export default function Messenger() {
         if (interlocutorId === -1 || !socketRef.current) return;
 
         try {
-            console.log('[RTC][Desktop] getUserMedia start video=', video);
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: video,
-                audio: true
-            });
-            console.log('[RTC][Desktop] getUserMedia success: tracks', stream.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}`));
-            setLocalStream(stream);
-            setIsVideoEnabled(video);
-            setIsAudioEnabled(true);
-
-            const pc = createPeerConnection();
-            try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
-            try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
-            stream.getTracks().forEach(t => { console.log('[RTC][Desktop] addTrack local:', t.kind); pc.addTrack(t, stream); });
-
-            const offer = await pc.createOffer();
-            console.log('[RTC][Desktop] createOffer done');
-            await pc.setLocalDescription(offer);
-            console.log('[RTC][Desktop] setLocalDescription(offer)');
-
-            socketRef.current.send(JSON.stringify({
-                type: 'offer',
-                offer: pc.localDescription?.toJSON() || offer,
-                author: user_id,
-                video: video
-            }));
-            console.log('[RTC][Desktop] sent offer');
+            if (!video) {
+                console.log('[RTC][Desktop] audio-call path');
+                const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+                setLocalStream(stream);
+                setIsVideoEnabled(false);
+                setIsAudioEnabled(true);
+                const pc = createPeerConnection();
+                try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
+                stream.getTracks().forEach(t => { console.log('[RTC][Desktop] addTrack local:', t.kind); pc.addTrack(t, stream); });
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socketRef.current.send(JSON.stringify({ type: 'offer', offer: pc.localDescription?.toJSON() || offer, author: user_id, video: false }));
+                console.log('[RTC][Desktop] sent offer (audio)');
+            } else {
+                console.log('[RTC][Desktop] video-call path start');
+                const primaryConstraints: MediaStreamConstraints = {
+                    audio: { echoCancellation: true, noiseSuppression: true },
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        aspectRatio: { ideal: 1.777 },
+                        frameRate: { ideal: 30 },
+                        facingMode: { ideal: 'user' }
+                    }
+                };
+                const fallbackConstraints: MediaStreamConstraints = { audio: true, video: true };
+                let stream: MediaStream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia(primaryConstraints);
+                } catch (e) {
+                    console.warn('[RTC][Desktop] primary gUM failed, fallback to simple constraints');
+                    stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                }
+                console.log('[RTC][Desktop] getUserMedia(video) success:', stream.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}`));
+                setLocalStream(stream);
+                setIsVideoEnabled(true);
+                setIsAudioEnabled(true);
+                if (localVideoRef.current) {
+                    localVideoRef.current.srcObject = stream;
+                }
+                const pc = createPeerConnection();
+                // Prefer sendrecv transceivers to lock directions and codecs
+                let vTransceiver: RTCRtpTransceiver | undefined;
+                try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
+                try { vTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
+                // Prefer VP8 first (broadest), then H264
+                try {
+                    const sendCodecs = RTCRtpSender.getCapabilities ? RTCRtpSender.getCapabilities('video')?.codecs || [] : [];
+                    const pref = sendCodecs.filter(c => /VP8|H264/i.test(c.mimeType));
+                    if (vTransceiver && vTransceiver.setCodecPreferences && pref.length) vTransceiver.setCodecPreferences(pref);
+                } catch {}
+                stream.getTracks().forEach(t => { console.log('[RTC][Desktop] addTrack local:', t.kind); pc.addTrack(t, stream); });
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socketRef.current.send(JSON.stringify({ type: 'offer', offer: pc.localDescription?.toJSON() || offer, author: user_id, video: true }));
+                console.log('[RTC][Desktop] sent offer (video)');
+            }
 
             setIsCalling(true);
         } catch (err) {

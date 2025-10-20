@@ -1,4 +1,3 @@
-// src/config/turnConfig.ts
 import { getServerUrl } from './serverConfig';
 
 export interface TurnCredentials {
