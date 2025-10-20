@@ -41,6 +41,7 @@ export default function Messenger() {
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
+    const remoteAudioRef = useRef<HTMLAudioElement>(null);
     const [iceServers, setIceServers] = useState<RTCIceServer[]>([]);
     const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
     const pendingRemoteCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -119,6 +120,15 @@ export default function Messenger() {
                 remoteStreamLocal.addTrack(e.track);
             }
             setRemoteStream(remoteStreamLocal);
+            if (remoteVideoRef.current) {
+                remoteVideoRef.current.srcObject = remoteStreamLocal;
+                remoteVideoRef.current.play?.().catch(() => {});
+            }
+            if (remoteAudioRef.current) {
+                remoteAudioRef.current.srcObject = remoteStreamLocal;
+                remoteAudioRef.current.muted = false;
+                remoteAudioRef.current.play?.().catch(() => {});
+            }
         };
 
         pc.onconnectionstatechange = () => {
@@ -152,6 +162,8 @@ export default function Messenger() {
             setIsAudioEnabled(true);
 
             const pc = createPeerConnection();
+            try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
+            try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
             stream.getTracks().forEach(t => { console.log('[RTC][Desktop] addTrack local:', t.kind); pc.addTrack(t, stream); });
 
             const offer = await pc.createOffer();
@@ -189,6 +201,8 @@ export default function Messenger() {
             setIsAudioEnabled(true);
 
             const pc = createPeerConnection();
+            try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
+            try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
             stream.getTracks().forEach(t => { console.log('[RTC][Desktop] addTrack local(answer):', t.kind); pc.addTrack(t, stream); });
 
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
@@ -244,6 +258,12 @@ export default function Messenger() {
     const hangup = () => {
         if (peerConnectionRef.current) {
             console.log('[RTC][Desktop] hangup: closing RTCPeerConnection');
+            try {
+                peerConnectionRef.current.getSenders().forEach(s => {
+                    try { s.replaceTrack(null); } catch {}
+                    try { s.track && s.track.stop(); } catch {}
+                });
+            } catch {}
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
         }
@@ -256,6 +276,9 @@ export default function Messenger() {
 
         setRemoteStream(null);
         remoteCompositeStreamRef.current = null;
+        if (localVideoRef.current) { try { localVideoRef.current.srcObject = null; } catch {} }
+        if (remoteVideoRef.current) { try { remoteVideoRef.current.srcObject = null; } catch {} }
+        if (remoteAudioRef.current) { try { remoteAudioRef.current.srcObject = null; } catch {} }
         setIsCalling(false);
         setIsIncomingCall(false);
         setIsVideoEnabled(false);
@@ -445,6 +468,7 @@ export default function Messenger() {
                                 </Typography>
                             </Box>
                         )}
+                        <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
                     </Box>
 
                     {/* Local video */}

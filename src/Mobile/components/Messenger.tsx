@@ -123,6 +123,15 @@ export default function MobileMessenger() {
                 composite.addTrack(event.track);
             }
             setRemoteStream(composite);
+            if (remoteVideoRef.current) {
+                remoteVideoRef.current.srcObject = composite;
+                remoteVideoRef.current.play?.().catch(() => {});
+            }
+            if (remoteAudioRef.current) {
+                remoteAudioRef.current.srcObject = composite;
+                remoteAudioRef.current.muted = false;
+                remoteAudioRef.current.play?.().catch(() => {});
+            }
         };
 
         pc.onconnectionstatechange = () => {
@@ -161,6 +170,8 @@ export default function MobileMessenger() {
             }
 
             const pc = createPeerConnection();
+            try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
+            try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
             stream.getTracks().forEach(track => { console.log('[RTC][Mobile] addTrack local:', track.kind); pc.addTrack(track, stream); });
 
             const offer = await pc.createOffer();
@@ -213,6 +224,8 @@ export default function MobileMessenger() {
                 localVideoRef.current.srcObject = stream;
             }
             
+            try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
+            try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
             stream.getTracks().forEach(track => { console.log('[RTC][Mobile] addTrack local(answer):', track.kind); pc.addTrack(track, stream); });
 
             const answer = await pc.createAnswer();
@@ -259,6 +272,12 @@ export default function MobileMessenger() {
     const hangup = () => {
         if (peerConnectionRef.current) {
             console.log('[RTC][Mobile] hangup: closing RTCPeerConnection');
+            try {
+                peerConnectionRef.current.getSenders().forEach(s => {
+                    try { s.replaceTrack(null); } catch {}
+                    try { s.track && s.track.stop(); } catch {}
+                });
+            } catch {}
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
         }
@@ -271,6 +290,9 @@ export default function MobileMessenger() {
         
         setRemoteStream(null);
         remoteCompositeStreamRef.current = null;
+        if (localVideoRef.current) { try { localVideoRef.current.srcObject = null; } catch {} }
+        if (remoteVideoRef.current) { try { remoteVideoRef.current.srcObject = null; } catch {} }
+        if (remoteAudioRef.current) { try { remoteAudioRef.current.srcObject = null; } catch {} }
         setIsCalling(false);
         setIsIncomingCall(false);
         setIsVideoEnabled(false);
@@ -536,7 +558,7 @@ export default function MobileMessenger() {
                                 }} 
                             />
                         ) : (
-                            <Box sx={{ 
+                    <Box sx={{ 
                                 display: 'flex', 
                                 flexDirection: 'column',
                                 alignItems: 'center', 
@@ -614,6 +636,9 @@ export default function MobileMessenger() {
                     </Box>
                 </DialogContent>
             </Dialog>
+
+            {/* Hidden remote audio to ensure sound plays reliably */}
+            <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
 
             {/* Кнопки звонков */}
             {interlocutorId !== -1 && !isCalling && !isIncomingCall && (
