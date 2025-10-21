@@ -23,11 +23,12 @@ export default function MobileMessenger() {
     const user_id = user.userInfo.user_id;
 
     const [messages, setMessages] = useState<MessageType[]>([]);
+    const wsRef = useRef<WebSocket | null>(null);
     const socketRef = useRef<WebSocket | null>(null);
     const [isLoaded, setIsLoaded] = useState(false);
     const messagesBlockRef = useRef<HTMLDivElement>(null);
 
-    // WebRTC состояния
+    // WebRTC состояние
     const [isCalling, setIsCalling] = useState(false);
     const [isIncomingCall, setIsIncomingCall] = useState(false);
     const [incomingCallVideo, setIncomingCallVideo] = useState(false);
@@ -69,7 +70,7 @@ export default function MobileMessenger() {
     const sendMessage = () => {
         if (!inputRef.current || interlocutorId === -1) return;
         const text = inputRef.current.value.trim();
-        if (text.length === 0 || !socketRef.current) return;
+        if (text.length === 0 || !wsRef.current) return;
 
         const id1 = Math.min(user_id, interlocutorId);
         const id2 = Math.max(user_id, interlocutorId);
@@ -81,8 +82,8 @@ export default function MobileMessenger() {
             author: user_id
         };
 
-        if (socketRef.current.readyState === WebSocket.OPEN) {
-            socketRef.current.send(JSON.stringify(sendedMessage));
+        if (wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify(sendedMessage));
             inputRef.current.value = '';
         }
     };
@@ -103,8 +104,8 @@ export default function MobileMessenger() {
         
         pc.onicecandidate = (event) => {
             console.log('[RTC][Mobile] onicecandidate:', event.candidate ? event.candidate.candidate : null);
-            if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
-                socketRef.current.send(JSON.stringify({
+            if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({
                     type: 'ice-candidate',
                     candidate: event.candidate.toJSON(),
                     author: user_id
@@ -151,8 +152,8 @@ export default function MobileMessenger() {
     };
 
     const startCall = async (video: boolean = false) => {
-        if (interlocutorId === -1 || !socketRef.current) return;
-        if (socketRef.current.readyState !== WebSocket.OPEN) return;
+        if (interlocutorId === -1 || !wsRef.current) return;
+        if (wsRef.current.readyState !== WebSocket.OPEN) return;
 
         try {
             if (!video) {
@@ -166,7 +167,7 @@ export default function MobileMessenger() {
                 stream.getTracks().forEach(track => { console.log('[RTC][Mobile] addTrack local:', track.kind); pc.addTrack(track, stream); });
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
-                socketRef.current.send(JSON.stringify({ type: 'offer', offer: pc.localDescription?.toJSON() || offer, author: user_id, video: false }));
+                wsRef.current.send(JSON.stringify({ type: 'offer', offer: pc.localDescription?.toJSON() || offer, author: user_id, video: false }));
                 console.log('[RTC][Mobile] sent offer (audio)');
             } else {
                 console.log('[RTC][Mobile] video-call path start');
@@ -207,7 +208,7 @@ export default function MobileMessenger() {
                 stream.getTracks().forEach(track => { console.log('[RTC][Mobile] addTrack local:', track.kind); pc.addTrack(track, stream); });
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
-                socketRef.current.send(JSON.stringify({ type: 'offer', offer: pc.localDescription?.toJSON() || offer, author: user_id, video: true }));
+                wsRef.current.send(JSON.stringify({ type: 'offer', offer: pc.localDescription?.toJSON() || offer, author: user_id, video: true }));
                 console.log('[RTC][Mobile] sent offer (video)');
             }
             
@@ -215,11 +216,12 @@ export default function MobileMessenger() {
         } catch (err) {
             console.error('[RTC][Mobile] startCall error', err);
             alert('Не удалось начать звонок. Проверьте разрешения камеры/микрофона.');
+            setIsCalling(false);
         }
     };
 
     const answerCall = async (offer: RTCSessionDescriptionInit, video: boolean = false) => {
-        if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
         try {
             const pc = createPeerConnection();
@@ -257,7 +259,7 @@ export default function MobileMessenger() {
             await pc.setLocalDescription(answer);
             console.log('[RTC][Mobile] setLocalDescription(answer)');
 
-            socketRef.current.send(JSON.stringify({
+            wsRef.current.send(JSON.stringify({
                 type: 'answer',
                 answer: pc.localDescription?.toJSON() || answer,
                 author: user_id
@@ -294,6 +296,9 @@ export default function MobileMessenger() {
     };
 
     const hangup = () => {
+        if (hangupProcessingRef.current) return;
+        hangupProcessingRef.current = true;
+
         if (peerConnectionRef.current) {
             console.log('[RTC][Mobile] hangup: closing RTCPeerConnection');
             try {
@@ -322,20 +327,24 @@ export default function MobileMessenger() {
         setIsVideoEnabled(false);
         setIsAudioEnabled(true);
         
-        if (socketRef.current?.readyState === WebSocket.OPEN) {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
             console.log('[RTC][Mobile] hangup: sending hangup');
-            socketRef.current.send(JSON.stringify({ 
+            wsRef.current.send(JSON.stringify({ 
                 type: 'hangup', 
                 author: user_id 
             }));
         }
+
+        setTimeout(() => {
+            hangupProcessingRef.current = false;
+        }, 1000);
     };
 
     const declineCall = () => {
         setIsIncomingCall(false);
         pendingOfferRef.current = null;
-        if (socketRef.current?.readyState === WebSocket.OPEN) {
-            socketRef.current.send(JSON.stringify({ 
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ 
                 type: 'hangup', 
                 author: user_id 
             }));
@@ -387,6 +396,7 @@ export default function MobileMessenger() {
     // WebSocket соединение
     useEffect(() => {
         if (interlocutorId === -1 || !user_id || user_id === -1) {
+            wsRef.current = null;
             socketRef.current = null;
             return;
         }
@@ -399,6 +409,7 @@ export default function MobileMessenger() {
         const newSocket = new WebSocket(wsUrl);
 
         newSocket.onopen = () => {
+            wsRef.current = newSocket;
             socketRef.current = newSocket;
             console.log('[WS][Mobile] open');
         };
@@ -444,28 +455,9 @@ export default function MobileMessenger() {
                         }
                     }
                 } else if (msgType === 'hangup' && data.author !== user_id) {
-                    // Предотвращаем бесконечный цикл
                     if (!hangupProcessingRef.current) {
                         hangupProcessingRef.current = true;
-                        
-                        // Закрываем соединение без отправки нового hangup
-                        if (peerConnectionRef.current) {
-                            peerConnectionRef.current.close();
-                            peerConnectionRef.current = null;
-                        }
-                        
-                        if (localStream) {
-                            localStream.getTracks().forEach(track => track.stop());
-                            setLocalStream(null);
-                        }
-                        
-                        setRemoteStream(null);
-                        setIsCalling(false);
-                        setIsIncomingCall(false);
-                        setIsVideoEnabled(false);
-                        setIsAudioEnabled(true);
-                        
-                        // Сбрасываем флаг через небольшую задержку
+                        hangup();
                         setTimeout(() => {
                             hangupProcessingRef.current = false;
                         }, 1000);
@@ -485,16 +477,14 @@ export default function MobileMessenger() {
         };
 
         newSocket.onclose = () => {
+            wsRef.current = null;
             socketRef.current = null;
             console.log('[WS][Mobile] close');
         };
 
         return () => {
-            if (newSocket.readyState === WebSocket.OPEN || newSocket.readyState === WebSocket.CONNECTING) {
-                console.log('[WS][Mobile] closing');
-                newSocket.close(1000, 'Unmounting');
-            }
-            socketRef.current = null;
+            console.log('[WS][Mobile] useEffect cleanup');
+            // Не закрываем соединение здесь, пусть закрывается естественно
         };
     }, [user_id, interlocutorId]);
 
@@ -582,7 +572,7 @@ export default function MobileMessenger() {
                                 }} 
                             />
                         ) : (
-                    <Box sx={{ 
+                            <Box sx={{ 
                                 display: 'flex', 
                                 flexDirection: 'column',
                                 alignItems: 'center', 
