@@ -24,7 +24,6 @@ export default function MobileMessenger() {
 
     const [messages, setMessages] = useState<MessageType[]>([]);
     const wsRef = useRef<WebSocket | null>(null);
-    const socketRef = useRef<WebSocket | null>(null);
     const [isLoaded, setIsLoaded] = useState(false);
     const messagesBlockRef = useRef<HTMLDivElement>(null);
 
@@ -34,7 +33,6 @@ export default function MobileMessenger() {
     const [incomingCallVideo, setIncomingCallVideo] = useState(false);
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-    const remoteCompositeStreamRef = useRef<MediaStream | null>(null);
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isAudioEnabled, setIsAudioEnabled] = useState(true);
     const [interlocutorName, setInterlocutorName] = useState<string>('');
@@ -48,8 +46,9 @@ export default function MobileMessenger() {
     const hangupProcessingRef = useRef(false);
     const pendingRemoteCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
     const remoteDescriptionSetRef = useRef(false);
+    const remoteTracksRef = useRef<Map<string, MediaStreamTrack>>(new Map());
 
-    // Загружаем TURN credentials
+    // Загрузка TURN credentials
     useEffect(() => {
         getTurnServers()
             .then(setIceServers)
@@ -103,7 +102,7 @@ export default function MobileMessenger() {
         const pc = new RTCPeerConnection(config);
         
         pc.onicecandidate = (event) => {
-            console.log('[RTC][Mobile] onicecandidate:', event.candidate ? event.candidate.candidate : null);
+            console.log('[RTC][Mobile] onicecandidate:', event.candidate?.candidate || 'null');
             if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
                 wsRef.current.send(JSON.stringify({
                     type: 'ice-candidate',
@@ -114,24 +113,25 @@ export default function MobileMessenger() {
         };
 
         pc.ontrack = (event) => {
-            console.log('[RTC][Mobile] ontrack:', event.track?.kind, 'streams count:', event.streams?.length || 0);
-            if (!remoteCompositeStreamRef.current) {
-                remoteCompositeStreamRef.current = new MediaStream();
-            }
-            const composite = remoteCompositeStreamRef.current;
-            if (event.track && !composite.getTracks().includes(event.track)) {
-                console.log('[RTC][Mobile] add remote track to composite:', event.track.kind);
-                composite.addTrack(event.track);
-            }
-            setRemoteStream(composite);
+            console.log('[RTC][Mobile] ontrack:', event.track?.kind);
+            if (!event.track) return;
+
+            const trackKey = `${event.track.kind}`;
+            remoteTracksRef.current.set(trackKey, event.track);
+
+            // Создаем новый MediaStream с обновленными треками
+            const newStream = new MediaStream(Array.from(remoteTracksRef.current.values()));
+            setRemoteStream(newStream);
+
+            // Устанавливаем srcObject сразу
             if (remoteVideoRef.current) {
-                remoteVideoRef.current.srcObject = composite;
-                remoteVideoRef.current.play?.().catch(() => {});
+                remoteVideoRef.current.srcObject = newStream;
+                remoteVideoRef.current.play?.().catch(err => console.warn('[RTC][Mobile] video play failed:', err));
             }
             if (remoteAudioRef.current) {
-                remoteAudioRef.current.srcObject = composite;
+                remoteAudioRef.current.srcObject = newStream;
                 remoteAudioRef.current.muted = false;
-                remoteAudioRef.current.play?.().catch(() => {});
+                remoteAudioRef.current.play?.().catch(err => console.warn('[RTC][Mobile] audio play failed:', err));
             }
         };
 
@@ -156,22 +156,8 @@ export default function MobileMessenger() {
         if (wsRef.current.readyState !== WebSocket.OPEN) return;
 
         try {
-            if (!video) {
-                console.log('[RTC][Mobile] audio-call path');
-                const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
-                setLocalStream(stream);
-                setIsVideoEnabled(false);
-                setIsAudioEnabled(true);
-                const pc = createPeerConnection();
-                try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
-                stream.getTracks().forEach(track => { console.log('[RTC][Mobile] addTrack local:', track.kind); pc.addTrack(track, stream); });
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                wsRef.current.send(JSON.stringify({ type: 'offer', offer: pc.localDescription?.toJSON() || offer, author: user_id, video: false }));
-                console.log('[RTC][Mobile] sent offer (audio)');
-            } else {
-                console.log('[RTC][Mobile] video-call path start');
-                const primaryConstraints: MediaStreamConstraints = {
+            const constraints = video 
+                ? {
                     audio: { echoCancellation: true, noiseSuppression: true },
                     video: {
                         width: { ideal: 1280 },
@@ -180,38 +166,39 @@ export default function MobileMessenger() {
                         frameRate: { ideal: 30 },
                         facingMode: { ideal: 'user' }
                     }
-                };
-                const fallbackConstraints: MediaStreamConstraints = { audio: true, video: true };
-                let stream: MediaStream;
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia(primaryConstraints);
-                } catch (e) {
-                    console.warn('[RTC][Mobile] primary gUM failed, fallback to simple constraints');
-                    stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-                }
-                console.log('[RTC][Mobile] getUserMedia(video) success:', stream.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}`));
-                setLocalStream(stream);
-                setIsVideoEnabled(true);
-                setIsAudioEnabled(true);
-                if (localVideoRef.current) {
-                    localVideoRef.current.srcObject = stream;
-                }
-                const pc = createPeerConnection();
-                let vTransceiver: RTCRtpTransceiver | undefined;
-                try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
-                try { vTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
-                try {
-                    const sendCodecs = RTCRtpSender.getCapabilities ? RTCRtpSender.getCapabilities('video')?.codecs || [] : [];
-                    const pref = sendCodecs.filter(c => /VP8|H264/i.test(c.mimeType));
-                    if (vTransceiver && vTransceiver.setCodecPreferences && pref.length) vTransceiver.setCodecPreferences(pref);
-                } catch {}
-                stream.getTracks().forEach(track => { console.log('[RTC][Mobile] addTrack local:', track.kind); pc.addTrack(track, stream); });
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                wsRef.current.send(JSON.stringify({ type: 'offer', offer: pc.localDescription?.toJSON() || offer, author: user_id, video: true }));
-                console.log('[RTC][Mobile] sent offer (video)');
+                  }
+                : { video: false, audio: true };
+
+            let stream: MediaStream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch (e) {
+                console.warn('[RTC][Mobile] primary gUM failed, trying fallback');
+                stream = await navigator.mediaDevices.getUserMedia(video ? { audio: true, video: true } : { audio: true, video: false });
             }
-            
+
+            setLocalStream(stream);
+            setIsVideoEnabled(video);
+            setIsAudioEnabled(true);
+
+            const pc = createPeerConnection();
+            try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
+            try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
+
+            stream.getTracks().forEach(track => {
+                console.log('[RTC][Mobile] addTrack local:', track.kind);
+                pc.addTrack(track, stream);
+            });
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            wsRef.current.send(JSON.stringify({ 
+                type: 'offer', 
+                offer: pc.localDescription?.toJSON() || offer, 
+                author: user_id, 
+                video 
+            }));
+
             setIsCalling(true);
         } catch (err) {
             console.error('[RTC][Mobile] startCall error', err);
@@ -224,47 +211,47 @@ export default function MobileMessenger() {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
         try {
-            const pc = createPeerConnection();
-            await pc.setRemoteDescription(new RTCSessionDescription(offer));
-            remoteDescriptionSetRef.current = true;
-            console.log('[RTC][Mobile] setRemoteDescription(offer) done; flushing pending candidates:', pendingRemoteCandidatesRef.current.length);
-            // flush queued candidates if any
-            if (pendingRemoteCandidatesRef.current.length > 0) {
-                for (const c of pendingRemoteCandidatesRef.current) {
-                    try { await pc.addIceCandidate(new RTCIceCandidate(c)); console.log('[RTC][Mobile] flushed ICE'); } catch (e) { console.warn('[RTC][Mobile] flush ICE error', e); }
-                }
-                pendingRemoteCandidatesRef.current = [];
-            }
-            
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: video, 
                 audio: true 
             });
             
-            console.log('[RTC][Mobile] getUserMedia(answer) success: tracks', stream.getTracks().map(t => `${t.kind}:${t.readyState}:${t.enabled}`));
             setLocalStream(stream);
             setIsVideoEnabled(video);
             setIsAudioEnabled(true);
-            
-            if (localVideoRef.current) {
-                localVideoRef.current.srcObject = stream;
+
+            const pc = createPeerConnection();
+
+            await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            remoteDescriptionSetRef.current = true;
+
+            if (pendingRemoteCandidatesRef.current.length > 0) {
+                for (const c of pendingRemoteCandidatesRef.current) {
+                    try { 
+                        await pc.addIceCandidate(new RTCIceCandidate(c));
+                    } catch (e) { 
+                        console.warn('[RTC][Mobile] flush ICE error', e);
+                    }
+                }
+                pendingRemoteCandidatesRef.current = [];
             }
-            
+
             try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
             try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
-            stream.getTracks().forEach(track => { console.log('[RTC][Mobile] addTrack local(answer):', track.kind); pc.addTrack(track, stream); });
+            
+            stream.getTracks().forEach(track => {
+                console.log('[RTC][Mobile] addTrack local(answer):', track.kind);
+                pc.addTrack(track, stream);
+            });
 
             const answer = await pc.createAnswer();
-            console.log('[RTC][Mobile] createAnswer done');
             await pc.setLocalDescription(answer);
-            console.log('[RTC][Mobile] setLocalDescription(answer)');
 
             wsRef.current.send(JSON.stringify({
                 type: 'answer',
                 answer: pc.localDescription?.toJSON() || answer,
                 author: user_id
             }));
-            console.log('[RTC][Mobile] sent answer');
 
             setIsCalling(true);
             setIsIncomingCall(false);
@@ -317,8 +304,8 @@ export default function MobileMessenger() {
             setLocalStream(null);
         }
         
+        remoteTracksRef.current.clear();
         setRemoteStream(null);
-        remoteCompositeStreamRef.current = null;
         if (localVideoRef.current) { try { localVideoRef.current.srcObject = null; } catch {} }
         if (remoteVideoRef.current) { try { remoteVideoRef.current.srcObject = null; } catch {} }
         if (remoteAudioRef.current) { try { remoteAudioRef.current.srcObject = null; } catch {} }
@@ -397,7 +384,6 @@ export default function MobileMessenger() {
     useEffect(() => {
         if (interlocutorId === -1 || !user_id || user_id === -1) {
             wsRef.current = null;
-            socketRef.current = null;
             return;
         }
 
@@ -410,7 +396,6 @@ export default function MobileMessenger() {
 
         newSocket.onopen = () => {
             wsRef.current = newSocket;
-            socketRef.current = newSocket;
             console.log('[WS][Mobile] open');
         };
 
@@ -418,7 +403,6 @@ export default function MobileMessenger() {
             try {
                 const data = JSON.parse(event.data);
                 const msgType = data.type || 'message';
-                console.log('[WS][Mobile] message', msgType, data);
 
                 if (msgType === 'message') {
                     setMessages((prevMessages) => [
@@ -440,8 +424,13 @@ export default function MobileMessenger() {
                     if (peerConnectionRef.current) {
                         peerConnectionRef.current.setRemoteDescription(
                             new RTCSessionDescription(data.answer)
-                        ).then(() => { remoteDescriptionSetRef.current = true; console.log('[RTC][Mobile] setRemoteDescription(answer)'); })
-                         .catch((e) => { console.warn('[RTC][Mobile] setRemoteDescription(answer) error', e); });
+                        ).then(() => { 
+                            remoteDescriptionSetRef.current = true; 
+                            console.log('[RTC][Mobile] setRemoteDescription(answer)');
+                        })
+                         .catch((e) => { 
+                             console.warn('[RTC][Mobile] setRemoteDescription(answer) error', e); 
+                         });
                     }
                 } else if (msgType === 'ice-candidate' && data.author !== user_id) {
                     if (peerConnectionRef.current && data.candidate) {
@@ -451,7 +440,9 @@ export default function MobileMessenger() {
                         } else {
                             peerConnectionRef.current.addIceCandidate(
                                 new RTCIceCandidate(data.candidate)
-                            ).then(() => console.log('[RTC][Mobile] addIceCandidate ok')).catch((e) => { console.warn('[RTC][Mobile] addIceCandidate error', e); });
+                            ).catch((e) => { 
+                                console.warn('[RTC][Mobile] addIceCandidate error', e); 
+                            });
                         }
                     }
                 } else if (msgType === 'hangup' && data.author !== user_id) {
@@ -478,22 +469,13 @@ export default function MobileMessenger() {
 
         newSocket.onclose = () => {
             wsRef.current = null;
-            socketRef.current = null;
             console.log('[WS][Mobile] close');
         };
 
         return () => {
             console.log('[WS][Mobile] useEffect cleanup');
-            // Не закрываем соединение здесь, пусть закрывается естественно
         };
     }, [user_id, interlocutorId]);
-
-    // Обновление remote video
-    useEffect(() => {
-        if (remoteVideoRef.current && remoteStream) {
-            remoteVideoRef.current.srcObject = remoteStream;
-        }
-    }, [remoteStream]);
 
     return (
         <div id="messenger" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -558,7 +540,7 @@ export default function MobileMessenger() {
                 <DialogContent sx={{ p: 0, position: 'relative', height: '100vh', display: 'flex', flexDirection: 'column' }}>
                     {/* Remote video/avatar */}
                     <Box sx={{ flex: 1, position: 'relative', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
+                        {remoteStream && remoteStream.getVideoTracks().length > 0 ? (
                             <video 
                                 ref={remoteVideoRef} 
                                 autoPlay 
@@ -651,10 +633,10 @@ export default function MobileMessenger() {
                 </DialogContent>
             </Dialog>
 
-            {/* Hidden remote audio to ensure sound plays reliably */}
+            {/* Hidden remote audio */}
             <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
 
-            {/* Кнопки звонков */}
+            {/* Call buttons */}
             {interlocutorId !== -1 && !isCalling && !isIncomingCall && (
                 <div style={{ 
                     display: 'flex', 
