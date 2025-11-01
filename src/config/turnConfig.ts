@@ -23,10 +23,10 @@ const FALLBACK_STUN_SERVERS = [
  */
 export const getTurnServers = async (): Promise<RTCIceServer[]> => {
     try {
-        console.log('[TURN] Fetching credentials from', `${getServerUrl()}/turn-credentials`);
+        console.log('[TURN] Fetching credentials...');
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 сек timeout
+        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 сек, не 5!
 
         const response = await fetch(`${getServerUrl()}/turn-credentials`, {
             method: 'GET',
@@ -39,53 +39,39 @@ export const getTurnServers = async (): Promise<RTCIceServer[]> => {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw new Error(`HTTP ${response.status}`);
         }
 
         const data = await response.json() as TurnCredentials;
 
-        // Валидация данных от сервера
-        if (!data || typeof data !== 'object') {
-            throw new Error('Invalid credentials format');
-        }
-
         const iceServers: RTCIceServer[] = [];
 
-        // Сначала добавляем STUN серверы (быстрые, обычно работают)
+        // Сначала STUN
         iceServers.push({
             urls: FALLBACK_STUN_SERVERS
         });
 
-        // Потом добавляем TURN если credentials получены
+        // Потом TURN если есть
         if (data.uris && Array.isArray(data.uris) && data.uris.length > 0) {
-            if (!data.username || !data.password) {
-                throw new Error('Invalid TURN credentials: missing username or password');
-            }
-
-            const sanitizedUris = data.uris.filter(uri => {
-                return typeof uri === 'string' && /^turns?:/.test(uri);
-            });
-
-            if (sanitizedUris.length > 0) {
-                iceServers.push({
-                    urls: sanitizedUris,
-                    username: String(data.username),
-                    credential: String(data.password)
+            if (data.username && data.password) {
+                const sanitizedUris = data.uris.filter(uri => {
+                    return typeof uri === 'string' && /^turns?:/.test(uri);
                 });
-                console.log('[TURN] ✅ TURN credentials loaded successfully');
-            } else {
-                console.warn('[TURN] No valid TURN URIs provided');
+
+                if (sanitizedUris.length > 0) {
+                    iceServers.push({
+                        urls: sanitizedUris,
+                        username: String(data.username),
+                        credential: String(data.password)
+                    });
+                    console.log('[TURN] ✅ Credentials loaded');
+                }
             }
-        } else {
-            console.warn('[TURN] No TURN URIs in response, using STUN only');
         }
 
         return iceServers;
     } catch (error) {
-        console.warn('[TURN] Failed to get TURN credentials:', error);
-
-        // Fallback: только STUN серверы
-        console.log('[TURN] Falling back to STUN only');
+        console.warn('[TURN] Fallback to STUN:', error);
         return [
             {
                 urls: FALLBACK_STUN_SERVERS
