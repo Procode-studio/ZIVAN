@@ -1,5 +1,17 @@
-import { CircularProgress, IconButton, TextField, Dialog, DialogContent, Avatar, Box, Typography, Fab } from "@mui/material";
-import { useState, useRef, useContext, useEffect } from "react";
+import { 
+    CircularProgress, 
+    IconButton, 
+    TextField, 
+    Dialog, 
+    DialogContent, 
+    Avatar, 
+    Box, 
+    Typography, 
+    Fab, 
+    Chip,
+    Paper
+} from "@mui/material";
+import { useState, useRef, useContext, useEffect, useCallback } from "react";
 import { MessageType } from 'my-types/Message';
 import SendIcon from '@mui/icons-material/Send';
 import PhoneIcon from '@mui/icons-material/Phone';
@@ -8,6 +20,9 @@ import CallEndIcon from '@mui/icons-material/CallEnd';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import CheckIcon from '@mui/icons-material/Check';
+import DoneAllIcon from '@mui/icons-material/DoneAll';
 import './messenger.css';
 import { MessengerInterlocutorId } from "../pages/MessengerPage";
 import { UserInfoContext } from "../../App";
@@ -16,27 +31,40 @@ import InterlocutorProfile from "../../Mobile/components/InterlocutorProfile";
 import { getServerUrl, getWsUrl } from '../../config/serverConfig';
 import { getTurnServers } from '../../config/turnConfig';
 
+interface ExtendedMessage extends MessageType {
+    is_read: boolean;
+}
+
+type CallStatus = 'idle' | 'calling' | 'ringing' | 'connected' | 'failed';
+
 export default function Messenger() {
     const interlocutorId = useContext(MessengerInterlocutorId);
     const inputRef = useRef<HTMLInputElement>(null);
     const user = useContext(UserInfoContext);
     const user_id = user.userInfo.user_id;
 
-    const [messages, setMessages] = useState<MessageType[]>([]);
-    const wsRef = useRef<WebSocket | null>(null);
+    // Сообщения
+    const [messages, setMessages] = useState<ExtendedMessage[]>([]);
     const [isLoaded, setIsLoaded] = useState(false);
     const messagesBlockRef = useRef<HTMLDivElement>(null);
 
+    // WebSocket и состояние
+    const wsRef = useRef<WebSocket | null>(null);
+    const [wsConnected, setWsConnected] = useState(false);
+    const [interlocutorName, setInterlocutorName] = useState('');
+    const [interlocutorOnline, setInterlocutorOnline] = useState(false);
+
     // WebRTC состояние
-    const [isCalling, setIsCalling] = useState(false);
-    const [isIncomingCall, setIsIncomingCall] = useState(false);
-    const [incomingCallVideo, setIncomingCallVideo] = useState(false);
-    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-    const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+    const [callStatus, setCallStatus] = useState<CallStatus>('idle');
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-    const [interlocutorName, setInterlocutorName] = useState('');
+    const [incomingCallVideo, setIncomingCallVideo] = useState(false);
     
+    // Потоки
+    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+    const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+    
+    // Refs
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -48,23 +76,380 @@ export default function Messenger() {
     const hangupProcessingRef = useRef(false);
     const remoteTracksRef = useRef<Map<string, MediaStreamTrack>>(new Map());
 
-    // Загрузка ICE серверов
+    // ===== ЗАГРУЗКА ICE СЕРВЕРОВ =====
     useEffect(() => {
-        getTurnServers().then(servers => setIceServers(servers)).catch(() => {
-            setIceServers([{ urls: 'stun:stun.l.google.com:19302' }]);
-        });
+        const loadTurnServers = async () => {
+            try {
+                const servers = await getTurnServers();
+                if (servers?.length) {
+                    setIceServers(servers);
+                } else {
+                    setIceServers([{ urls: 'stun:stun.l.google.com:19302' }]);
+                }
+            } catch (err) {
+                console.error('[Setup] Failed to load TURN servers:', err);
+                setIceServers([{ urls: 'stun:stun.l.google.com:19302' }]);
+            }
+        };
+        loadTurnServers();
     }, []);
 
-    // Загрузка имени собеседника
+    // ===== ЗАГРУЗКА ПРОФИЛЯ СОБЕСЕДНИКА =====
     useEffect(() => {
-        if (interlocutorId !== -1) {
-            axios.get(`${getServerUrl()}/users/${interlocutorId}`)
-                .then(res => setInterlocutorName(res.data.name))
-                .catch(() => setInterlocutorName('Собеседник'));
+        if (interlocutorId === -1) {
+            setInterlocutorName('');
+            return;
         }
+
+        const controller = new AbortController();
+        axios.get(`${getServerUrl()}/users/${interlocutorId}`, {
+            signal: controller.signal
+        })
+            .then(res => {
+                if (res.data?.name) {
+                    setInterlocutorName(res.data.name);
+                }
+            })
+            .catch(err => {
+                if (!axios.isCancel(err)) {
+                    console.error('[Profile] Failed to load:', err);
+                    setInterlocutorName(`User #${interlocutorId}`);
+                }
+            });
+
+        return () => controller.abort();
     }, [interlocutorId]);
 
-    const sendMessage = () => {
+    // ===== ЗАГРУЗКА СООБЩЕНИЙ =====
+    useEffect(() => {
+        if (interlocutorId === -1) {
+            setMessages([]);
+            setIsLoaded(true);
+            return;
+        }
+
+        setIsLoaded(false);
+        const controller = new AbortController();
+        const id1 = Math.min(user_id, interlocutorId);
+        const id2 = Math.max(user_id, interlocutorId);
+
+        axios.get(`${getServerUrl()}/messages/${id1}/${id2}`, {
+            signal: controller.signal
+        })
+            .then(res => {
+                const data = (res.data || []).map((m: any) => ({
+                    id: m.id,
+                    text: m.text,
+                    author: m.author,
+                    message_type: 'text',
+                    is_read: m.author === user_id,
+                    created_at: m.created_at || new Date().toISOString()
+                }));
+                setMessages(data);
+                setIsLoaded(true);
+                setTimeout(() => {
+                    messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current?.scrollHeight || 0);
+                }, 10);
+            })
+            .catch(err => {
+                if (!axios.isCancel(err)) {
+                    console.error('[Messages] Failed to load:', err);
+                }
+                setIsLoaded(true);
+            });
+
+        return () => controller.abort();
+    }, [user_id, interlocutorId]);
+
+    // ===== WEBRTC: СОЗДАНИЕ PEER CONNECTION =====
+    const createPeerConnection = useCallback(() => {
+        try {
+            console.log('[RTC] Creating PeerConnection with iceServers:', iceServers.length);
+            
+            const config: RTCConfiguration = {
+                iceServers: iceServers?.length ? iceServers : [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ],
+                iceCandidatePoolSize: 10
+            };
+
+            const pc = new RTCPeerConnection(config);
+
+            pc.onicecandidate = (e) => {
+                if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({
+                        type: 'ice-candidate',
+                        candidate: e.candidate.toJSON(),
+                        author: user_id
+                    }));
+                }
+            };
+
+            pc.ontrack = (e) => {
+                console.log('[RTC] ontrack:', e.track?.kind);
+                if (!e.track) return;
+
+                const trackKey = `${e.track.kind}`;
+                remoteTracksRef.current.set(trackKey, e.track);
+
+                // Пересчитываем поток
+                const tracks = Array.from(remoteTracksRef.current.values());
+                const newStream = new MediaStream(tracks);
+                setRemoteStream(newStream);
+
+                // Применяем к видео элементам
+                if (remoteVideoRef.current && e.track.kind === 'video') {
+                    remoteVideoRef.current.srcObject = newStream;
+                    remoteVideoRef.current.play?.().catch(err => 
+                        console.warn('[RTC] Video play error:', err)
+                    );
+                }
+                if (remoteAudioRef.current && e.track.kind === 'audio') {
+                    remoteAudioRef.current.srcObject = newStream;
+                    remoteAudioRef.current.muted = false;
+                    remoteAudioRef.current.play?.().catch(err => 
+                        console.warn('[RTC] Audio play error:', err)
+                    );
+                }
+            };
+
+            pc.onconnectionstatechange = () => {
+                console.log('[RTC] connectionState:', pc.connectionState);
+                if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                    hangup();
+                }
+            };
+
+            pc.oniceconnectionstatechange = () => {
+                console.log('[RTC] iceConnectionState:', pc.iceConnectionState);
+            };
+
+            peerConnectionRef.current = pc;
+            remoteDescriptionSetRef.current = false;
+            return pc;
+        } catch (err) {
+            console.error('[RTC] Failed to create PeerConnection:', err);
+            throw err;
+        }
+    }, [iceServers, user_id]);
+
+    // ===== WEBRTC: НАЧАТЬ ЗВОНОК =====
+    const startCall = useCallback(async (withVideo: boolean) => {
+        if (interlocutorId === -1 || !wsRef.current) return;
+        if (wsRef.current.readyState !== WebSocket.OPEN) {
+            console.warn('[Call] WebSocket not ready');
+            return;
+        }
+
+        try {
+            setCallStatus('calling');
+            console.log(`[Call] Starting ${withVideo ? 'video' : 'audio'} call...`);
+
+            const constraints = withVideo 
+                ? {
+                    audio: { echoCancellation: true, noiseSuppression: true },
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        frameRate: { ideal: 30 }
+                    }
+                  }
+                : { audio: true, video: false };
+
+            let stream: MediaStream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch (e) {
+                console.warn('[Call] Primary constraints failed, using fallback');
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: withVideo ? true : false
+                });
+            }
+
+            setLocalStream(stream);
+            setIsVideoEnabled(withVideo);
+            setIsAudioEnabled(true);
+
+            if (localVideoRef.current && withVideo) {
+                localVideoRef.current.srcObject = stream;
+            }
+
+            const pc = createPeerConnection();
+            
+            // Добавляем трансиверы
+            try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
+            try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
+
+            // Добавляем локальные треки
+            stream.getTracks().forEach(track => {
+                pc.addTrack(track, stream);
+            });
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            wsRef.current.send(JSON.stringify({
+                type: 'offer',
+                offer: pc.localDescription?.toJSON() || offer,
+                author: user_id,
+                video: withVideo
+            }));
+
+            console.log('[Call] Offer sent');
+        } catch (err) {
+            console.error('[Call] Failed to start:', err);
+            setCallStatus('failed');
+            alert('Не удалось начать звонок. Проверьте разрешения.');
+            setTimeout(() => setCallStatus('idle'), 2000);
+        }
+    }, [interlocutorId, user_id, createPeerConnection]);
+
+    // ===== WEBRTC: ОТВЕТИТЬ НА ЗВОНОК =====
+    const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+        try {
+            console.log('[Call] Answering call...');
+            setCallStatus('connected');
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: withVideo ? true : false
+            });
+
+            setLocalStream(stream);
+            setIsVideoEnabled(withVideo);
+            setIsAudioEnabled(true);
+
+            if (localVideoRef.current && withVideo) {
+                localVideoRef.current.srcObject = stream;
+            }
+
+            const pc = createPeerConnection();
+
+            // Добавляем трансиверы
+            try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
+            try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
+
+            // Добавляем локальные треки
+            stream.getTracks().forEach(track => {
+                pc.addTrack(track, stream);
+            });
+
+            await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            remoteDescriptionSetRef.current = true;
+
+            // Добавляем скопленные ICE кандидаты
+            if (pendingRemoteCandidatesRef.current.length > 0) {
+                for (const c of pendingRemoteCandidatesRef.current) {
+                    try {
+                        await pc.addIceCandidate(new RTCIceCandidate(c));
+                    } catch (e) {
+                        console.warn('[RTC] Failed to add pending candidate:', e);
+                    }
+                }
+                pendingRemoteCandidatesRef.current = [];
+            }
+
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            wsRef.current.send(JSON.stringify({
+                type: 'answer',
+                answer: pc.localDescription?.toJSON() || answer,
+                author: user_id
+            }));
+
+            console.log('[Call] Answer sent');
+        } catch (err) {
+            console.error('[Call] Failed to answer:', err);
+            setCallStatus('failed');
+            alert('Не удалось ответить на звонок');
+            setTimeout(() => setCallStatus('idle'), 2000);
+        }
+    }, [user_id, createPeerConnection]);
+
+    // ===== УПРАВЛЕНИЕ МЕДИА =====
+    const toggleAudio = useCallback(() => {
+        if (!localStream) return;
+        const track = localStream.getAudioTracks()[0];
+        if (track) {
+            track.enabled = !track.enabled;
+            setIsAudioEnabled(track.enabled);
+        }
+    }, [localStream]);
+
+    const toggleVideo = useCallback(() => {
+        if (!localStream) return;
+        const track = localStream.getVideoTracks()[0];
+        if (track) {
+            track.enabled = !track.enabled;
+            setIsVideoEnabled(track.enabled);
+        }
+    }, [localStream]);
+
+    // ===== ЗАВЕРШИТЬ ЗВОНОК =====
+    const hangup = useCallback(() => {
+        if (hangupProcessingRef.current) return;
+        hangupProcessingRef.current = true;
+
+        console.log('[Call] Hanging up...');
+
+        if (peerConnectionRef.current) {
+            try {
+                peerConnectionRef.current.getSenders().forEach(s => {
+                    try { s.replaceTrack(null); } catch {}
+                    try { s.track?.stop(); } catch {}
+                });
+            } catch {}
+            peerConnectionRef.current.close();
+            peerConnectionRef.current = null;
+        }
+
+        if (localStream) {
+            localStream.getTracks().forEach(t => {
+                try { t.stop(); } catch {}
+            });
+            setLocalStream(null);
+        }
+
+        remoteTracksRef.current.clear();
+        setRemoteStream(null);
+        if (localVideoRef.current) { try { localVideoRef.current.srcObject = null; } catch {} }
+        if (remoteVideoRef.current) { try { remoteVideoRef.current.srcObject = null; } catch {} }
+        if (remoteAudioRef.current) { try { remoteAudioRef.current.srcObject = null; } catch {} }
+
+        setCallStatus('idle');
+        setIsVideoEnabled(false);
+        setIsAudioEnabled(true);
+
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'hangup',
+                author: user_id
+            }));
+        }
+
+        setTimeout(() => {
+            hangupProcessingRef.current = false;
+        }, 1000);
+    }, [user_id]);
+
+    const declineCall = useCallback(() => {
+        pendingOfferRef.current = null;
+        setCallStatus('idle');
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+                type: 'hangup',
+                author: user_id
+            }));
+        }
+    }, [user_id]);
+
+    // ===== ОТПРАВКА СООБЩЕНИЯ =====
+    const sendMessage = useCallback(() => {
         if (!inputRef.current || interlocutorId === -1 || !wsRef.current) return;
         const text = inputRef.current.value.trim();
         if (!text) return;
@@ -82,487 +467,348 @@ export default function Messenger() {
             }));
             inputRef.current.value = '';
         }
-    };
+    }, [interlocutorId, user_id]);
 
-    const createPeerConnection = () => {
-        console.log('[RTC][Desktop] creating RTCPeerConnection with iceServers:', iceServers);
-        const config: RTCConfiguration = {
-            iceServers: (iceServers && iceServers.length > 0) ? iceServers : [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ],
-            iceCandidatePoolSize: 10
-        };
-
-        const pc = new RTCPeerConnection(config);
-
-        pc.onicecandidate = (e) => {
-            console.log('[RTC][Desktop] onicecandidate:', e.candidate?.candidate || 'null');
-            if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
-                wsRef.current.send(JSON.stringify({
-                    type: 'ice-candidate',
-                    candidate: e.candidate.toJSON(),
-                    author: user_id
-                }));
-            }
-        };
-
-        pc.ontrack = (e) => {
-            console.log('[RTC][Desktop] ontrack:', e.track?.kind);
-            if (!e.track) return;
-
-            const trackKey = `${e.track.kind}`;
-            remoteTracksRef.current.set(trackKey, e.track);
-
-            // Создаем новый MediaStream с обновленными треками
-            const newStream = new MediaStream(Array.from(remoteTracksRef.current.values()));
-            setRemoteStream(newStream);
-
-            // Устанавливаем srcObject сразу
-            if (remoteVideoRef.current) {
-                remoteVideoRef.current.srcObject = newStream;
-                remoteVideoRef.current.play?.().catch(err => console.warn('[RTC][Desktop] video play failed:', err));
-            }
-            if (remoteAudioRef.current) {
-                remoteAudioRef.current.srcObject = newStream;
-                remoteAudioRef.current.muted = false;
-                remoteAudioRef.current.play?.().catch(err => console.warn('[RTC][Desktop] audio play failed:', err));
-            }
-        };
-
-        pc.onconnectionstatechange = () => {
-            console.log('[RTC][Desktop] connectionState:', pc.connectionState);
-            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-                hangup();
-            }
-        };
-
-        pc.oniceconnectionstatechange = () => {
-            console.log('[RTC][Desktop] iceConnectionState:', pc.iceConnectionState);
-        };
-
-        peerConnectionRef.current = pc;
-        remoteDescriptionSetRef.current = false;
-        return pc;
-    };
-
-    const startCall = async (video: boolean) => {
-        if (interlocutorId === -1 || !wsRef.current) return;
-        if (wsRef.current.readyState !== WebSocket.OPEN) {
-            console.warn('[RTC][Desktop] WebSocket not ready');
-            return;
-        }
-
-        try {
-            const constraints = video 
-                ? {
-                    audio: { echoCancellation: true, noiseSuppression: true },
-                    video: {
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 },
-                        aspectRatio: { ideal: 1.777 },
-                        frameRate: { ideal: 30 },
-                        facingMode: { ideal: 'user' }
-                    }
-                  }
-                : { video: false, audio: true };
-
-            let stream: MediaStream;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
-            } catch (e) {
-                console.warn('[RTC][Desktop] primary gUM failed, trying fallback');
-                stream = await navigator.mediaDevices.getUserMedia(video ? { audio: true, video: true } : { audio: true, video: false });
-            }
-
-            setLocalStream(stream);
-            setIsVideoEnabled(video);
-            setIsAudioEnabled(true);
-
-            if (localVideoRef.current && video) {
-                localVideoRef.current.srcObject = stream;
-            }
-
-            const pc = createPeerConnection();
-            try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
-            try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
-
-            stream.getTracks().forEach(t => {
-                console.log('[RTC][Desktop] addTrack local:', t.kind);
-                pc.addTrack(t, stream);
-            });
-
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            wsRef.current.send(JSON.stringify({ 
-                type: 'offer', 
-                offer: pc.localDescription?.toJSON() || offer, 
-                author: user_id, 
-                video 
-            }));
-
-            setIsCalling(true);
-        } catch (err) {
-            console.error('[RTC][Desktop] startCall error', err);
-            alert('Не удалось начать звонок. Проверьте разрешения камеры/микрофона.');
-            setIsCalling(false);
-        }
-    };
-
-    const answerCall = async (offer: RTCSessionDescriptionInit, video: boolean) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: video,
-                audio: true
-            });
-
-            setLocalStream(stream);
-            setIsVideoEnabled(video);
-            setIsAudioEnabled(true);
-
-            if (localVideoRef.current && video) {
-                localVideoRef.current.srcObject = stream;
-            }
-
-            const pc = createPeerConnection();
-            try { pc.addTransceiver('audio', { direction: 'sendrecv' }); } catch {}
-            try { pc.addTransceiver('video', { direction: 'sendrecv' }); } catch {}
-
-            stream.getTracks().forEach(t => {
-                console.log('[RTC][Desktop] addTrack local(answer):', t.kind);
-                pc.addTrack(t, stream);
-            });
-
-            await pc.setRemoteDescription(new RTCSessionDescription(offer));
-            remoteDescriptionSetRef.current = true;
-
-            if (pendingRemoteCandidatesRef.current.length > 0) {
-                for (const c of pendingRemoteCandidatesRef.current) {
-                    try { 
-                        await pc.addIceCandidate(new RTCIceCandidate(c));
-                    } catch (e) { 
-                        console.warn('[RTC][Desktop] flush ICE error', e);
-                    }
-                }
-                pendingRemoteCandidatesRef.current = [];
-            }
-
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-
-            wsRef.current.send(JSON.stringify({
-                type: 'answer',
-                answer: pc.localDescription?.toJSON() || answer,
-                author: user_id
-            }));
-
-            setIsCalling(true);
-            setIsIncomingCall(false);
-        } catch (err) {
-            console.error('[RTC][Desktop] answerCall error', err);
-            alert('Не удалось ответить на звонок');
-            setIsIncomingCall(false);
-        }
-    };
-
-    const toggleVideo = () => {
-        if (localStream) {
-            const track = localStream.getVideoTracks()[0];
-            if (track) {
-                track.enabled = !track.enabled;
-                setIsVideoEnabled(track.enabled);
-            }
-        }
-    };
-
-    const toggleAudio = () => {
-        if (localStream) {
-            const track = localStream.getAudioTracks()[0];
-            if (track) {
-                track.enabled = !track.enabled;
-                setIsAudioEnabled(track.enabled);
-            }
-        }
-    };
-
-    const hangup = () => {
-        if (hangupProcessingRef.current) return;
-        hangupProcessingRef.current = true;
-
-        if (peerConnectionRef.current) {
-            try {
-                peerConnectionRef.current.getSenders().forEach(s => {
-                    try { s.replaceTrack(null); } catch {}
-                    try { s.track?.stop(); } catch {}
-                });
-            } catch {}
-            peerConnectionRef.current.close();
-            peerConnectionRef.current = null;
-        }
-
-        if (localStream) {
-            localStream.getTracks().forEach(t => { try { t.stop(); } catch {} });
-            setLocalStream(null);
-        }
-
-        remoteTracksRef.current.clear();
-        setRemoteStream(null);
-        if (localVideoRef.current) { try { localVideoRef.current.srcObject = null; } catch {} }
-        if (remoteVideoRef.current) { try { remoteVideoRef.current.srcObject = null; } catch {} }
-        if (remoteAudioRef.current) { try { remoteAudioRef.current.srcObject = null; } catch {} }
-        
-        setIsCalling(false);
-        setIsIncomingCall(false);
-        setIsVideoEnabled(false);
-        setIsAudioEnabled(true);
-
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({
-                type: 'hangup',
-                author: user_id
-            }));
-        }
-
-        setTimeout(() => {
-            hangupProcessingRef.current = false;
-        }, 1000);
-    };
-
-    const declineCall = () => {
-        setIsIncomingCall(false);
-        pendingOfferRef.current = null;
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({
-                type: 'hangup',
-                author: user_id
-            }));
-        }
-    };
-
-    // Загрузка сообщений
-    useEffect(() => {
-        if (interlocutorId === -1) {
-            setMessages([]);
-            setIsLoaded(true);
-            return;
-        }
-
-        setIsLoaded(false);
-        const cancel = axios.CancelToken.source();
-        const id1 = Math.min(user_id, interlocutorId);
-        const id2 = Math.max(user_id, interlocutorId);
-
-        axios.get(`${getServerUrl()}/messages/${id1}/${id2}`, { cancelToken: cancel.token })
-            .then((res) => {
-                const data: MessageType[] = res.data.map((m: any) => ({
-                    id: m.id,
-                    text: m.text,
-                    author: m.author,
-                    message_type: 'text',
-                    is_read: false,
-                    created_at: m.created_at || new Date().toISOString()
-                }));
-                setMessages(data);
-                setIsLoaded(true);
-                setTimeout(() => messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current.scrollHeight), 10);
-            })
-            .catch(() => setIsLoaded(true));
-
-        return () => cancel.cancel();
-    }, [user_id, interlocutorId]);
-
-    // WebSocket
+    // ===== WEBSOCKET СОЕДИНЕНИЕ =====
     useEffect(() => {
         if (interlocutorId === -1 || !user_id || user_id === -1) {
             wsRef.current = null;
+            setWsConnected(false);
             return;
         }
 
         const id1 = Math.min(user_id, interlocutorId);
         const id2 = Math.max(user_id, interlocutorId);
         const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}`;
-        console.log('[WS][Desktop] connecting', wsUrl);
         
-        const ws = new WebSocket(wsUrl);
+        console.log('[WS] Connecting to:', wsUrl);
+        let reconnectTimeout: ReturnType<typeof setTimeout>;
+        let isIntentionallyClosed = false;
 
-        ws.onopen = () => { 
-            wsRef.current = ws;
-            console.log('[WS][Desktop] open'); 
-        };
-
-        ws.onmessage = (event) => {
+        const connect = () => {
             try {
-                const data = JSON.parse(event.data);
-                const type = data.type || 'message';
+                const ws = new WebSocket(wsUrl);
 
-                if (type === 'message') {
-                    setMessages(prev => [...prev, {
-                        id: Date.now(),
-                        text: data.text,
-                        author: data.author,
-                        message_type: 'text',
-                        is_read: false,
-                        created_at: new Date().toISOString()
-                    }]);
-                } else if (type === 'offer' && data.author !== user_id) {
-                    pendingOfferRef.current = data.offer;
-                    setIncomingCallVideo(data.video || false);
-                    setIsIncomingCall(true);
-                } else if (type === 'answer' && data.author !== user_id) {
-                    if (peerConnectionRef.current) {
-                        peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(data.answer))
-                            .then(() => { 
-                                remoteDescriptionSetRef.current = true;
-                                console.log('[RTC][Desktop] setRemoteDescription(answer)');
-                            })
-                            .catch((e) => { 
-                                console.warn('[RTC][Desktop] setRemoteDescription(answer) error', e);
-                            });
-                    }
-                } else if (type === 'ice-candidate' && data.author !== user_id) {
-                    if (peerConnectionRef.current && data.candidate) {
-                        if (!remoteDescriptionSetRef.current) {
-                            pendingRemoteCandidatesRef.current.push(data.candidate);
-                        } else {
-                            peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate))
-                                .catch((e) => { console.warn('[RTC][Desktop] addIceCandidate error', e); });
+                ws.onopen = () => {
+                    wsRef.current = ws;
+                    setWsConnected(true);
+                    console.log('[WS] Connected');
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        const type = data.type || 'message';
+
+                        if (type === 'message') {
+                            setMessages(prev => [...prev, {
+                                id: Date.now(),
+                                text: data.text,
+                                author: data.author,
+                                message_type: 'text',
+                                is_read: data.author === user_id,
+                                created_at: new Date().toISOString()
+                            }]);
+                        } else if (type === 'offer' && data.author !== user_id) {
+                            pendingOfferRef.current = data.offer;
+                            setIncomingCallVideo(data.video || false);
+                            setCallStatus('ringing');
+                        } else if (type === 'answer' && data.author !== user_id) {
+                            if (peerConnectionRef.current) {
+                                peerConnectionRef.current.setRemoteDescription(
+                                    new RTCSessionDescription(data.answer)
+                                ).then(() => {
+                                    remoteDescriptionSetRef.current = true;
+                                    setCallStatus('connected');
+                                }).catch(e => console.warn('[RTC] setRemoteDescription error:', e));
+                            }
+                        } else if (type === 'ice-candidate' && data.author !== user_id) {
+                            if (peerConnectionRef.current && data.candidate) {
+                                if (!remoteDescriptionSetRef.current) {
+                                    pendingRemoteCandidatesRef.current.push(data.candidate);
+                                } else {
+                                    peerConnectionRef.current.addIceCandidate(
+                                        new RTCIceCandidate(data.candidate)
+                                    ).catch(e => console.warn('[RTC] addIceCandidate error:', e));
+                                }
+                            }
+                        } else if (type === 'hangup' && data.author !== user_id) {
+                            hangup();
                         }
-                    }
-                } else if (type === 'hangup' && data.author !== user_id) {
-                    if (!hangupProcessingRef.current) {
-                        hangupProcessingRef.current = true;
-                        hangup();
-                        setTimeout(() => {
-                            hangupProcessingRef.current = false;
-                        }, 1000);
-                    }
-                }
 
-                setTimeout(() => messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current.scrollHeight), 10);
-            } catch (e) {
-                console.error('[WS][Desktop] message processing error', e);
+                        setTimeout(() => {
+                            messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current?.scrollHeight || 0);
+                        }, 10);
+                    } catch (e) {
+                        console.error('[WS] Message parse error:', e);
+                    }
+                };
+
+                ws.onerror = (err) => {
+                    console.error('[WS] Error:', err);
+                    setWsConnected(false);
+                };
+
+                ws.onclose = () => {
+                    wsRef.current = null;
+                    setWsConnected(false);
+                    console.log('[WS] Closed');
+
+                    if (!isIntentionallyClosed) {
+                        reconnectTimeout = setTimeout(connect, 3000);
+                    }
+                };
+            } catch (err) {
+                console.error('[WS] Connection failed:', err);
+                setWsConnected(false);
             }
         };
 
-        ws.onerror = (err) => {
-            console.error('[WS][Desktop] error', err);
-        };
-
-        ws.onclose = () => { 
-            wsRef.current = null;
-            console.log('[WS][Desktop] close'); 
-        };
+        connect();
 
         return () => {
-            console.log('[WS][Desktop] useEffect cleanup');
+            isIntentionallyClosed = true;
+            clearTimeout(reconnectTimeout);
+            if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
+            }
         };
-    }, [user_id, interlocutorId]);
+    }, [user_id, interlocutorId, hangup]);
+
+    // ===== РЕНДЕР СТАТУСА =====
+    const getStatusText = () => {
+        if (callStatus === 'calling') return 'Вызов...';
+        if (callStatus === 'ringing') return 'Входящий вызов';
+        if (callStatus === 'connected') return 'В разговоре';
+        if (interlocutorOnline) return 'Online';
+        return 'Offline';
+    };
+
+    const getStatusColor = () => {
+        if (callStatus !== 'idle') return 'error';
+        if (interlocutorOnline) return 'success';
+        return 'default';
+    };
 
     return (
         <div id="messenger">
-            {isLoaded && <InterlocutorProfile interlocutorId={interlocutorId} showButton={false}/>}
-            
-            {!isLoaded ? (
-                <section id='loading'><CircularProgress color="secondary"/></section>
-            ) : interlocutorId === -1 ? (
-                <span id="choose-interlocutor-text">Выберите собеседника</span>
-            ) : (
-                <section id='messages' ref={messagesBlockRef}>
-                    {messages.length === 0 && <span id="no-messages-text">История пуста</span>}
-                    {messages.map((m, i) => (
-                        <div key={i} data-from={m.author === user_id ? 'me' : 'other'}>{m.text}</div>
-                    ))}
-                </section>
+            {/* ПАНЕЛЬ СВЕРХУ */}
+            {isLoaded && (
+                <Paper sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Avatar sx={{ width: 40, height: 40 }}>
+                            {interlocutorName[0]?.toUpperCase() || '?'}
+                        </Avatar>
+                        <Box>
+                            <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                                {interlocutorName}
+                            </Typography>
+                            <Chip
+                                label={getStatusText()}
+                                color={getStatusColor()}
+                                size="small"
+                                variant="outlined"
+                            />
+                        </Box>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        {callStatus === 'idle' && (
+                            <>
+                                <IconButton 
+                                    onClick={() => startCall(false)} 
+                                    color="primary"
+                                    title="Аудио звонок"
+                                >
+                                    <PhoneIcon />
+                                </IconButton>
+                                <IconButton 
+                                    onClick={() => startCall(true)} 
+                                    color="primary"
+                                    title="Видео звонок"
+                                >
+                                    <VideocamIcon />
+                                </IconButton>
+                            </>
+                        )}
+                        {callStatus !== 'idle' && (
+                            <Fab 
+                                color="error" 
+                                size="small"
+                                onClick={hangup}
+                            >
+                                <CallEndIcon />
+                            </Fab>
+                        )}
+                        <IconButton>
+                            <MoreVertIcon />
+                        </IconButton>
+                    </Box>
+                </Paper>
             )}
-            
-            {/* Входящий звонок */}
-            <Dialog open={isIncomingCall} onClose={declineCall} maxWidth="xs" fullWidth>
+
+            {/* ОСНОВНАЯ ОБЛАСТЬ */}
+            {!isLoaded ? (
+                <section id='loading' style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <CircularProgress color="secondary"/>
+                </section>
+            ) : interlocutorId === -1 ? (
+                <span id="choose-interlocutor-text" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    Выберите собеседника
+                </span>
+            ) : (
+                <Box sx={{ display: 'flex', flex: 1 }}>
+                    {/* СООБЩЕНИЯ */}
+                    <section id='messages' ref={messagesBlockRef} style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+                        {messages.length === 0 && <span id="no-messages-text">История пуста</span>}
+                        {messages.map((m, i) => (
+                            <Box 
+                                key={i} 
+                                data-from={m.author === user_id ? 'me' : 'other'}
+                                sx={{ 
+                                    mb: 1, 
+                                    display: 'flex',
+                                    alignItems: 'flex-end',
+                                    gap: 0.5,
+                                    justifyContent: m.author === user_id ? 'flex-end' : 'flex-start'
+                                }}
+                            >
+                                <Typography variant="body2">
+                                    {m.text}
+                                </Typography>
+                                {m.author === user_id && (
+                                    <>
+                                        {m.is_read ? <DoneAllIcon sx={{ fontSize: 16 }} /> : <CheckIcon sx={{ fontSize: 16 }} />}
+                                    </>
+                                )}
+                            </Box>
+                        ))}
+                    </section>
+
+                    {/* ВИДЕО ОКНО (ОТДЕЛЬНОЕ) */}
+                    {callStatus !== 'idle' && (remoteStream || isVideoEnabled) && (
+                        <Box sx={{
+                            width: 300,
+                            borderLeft: '1px solid #ccc',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            backgroundColor: '#000'
+                        }}>
+                            {/* Удаленное видео */}
+                            {remoteStream && remoteStream.getVideoTracks().length > 0 ? (
+                                <Box sx={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <video
+                                        ref={remoteVideoRef}
+                                        autoPlay
+                                        playsInline
+                                        style={{
+                                            width: '100%',
+                                            height: '100%',
+                                            objectFit: 'cover'
+                                        }}
+                                    />
+                                </Box>
+                            ) : (
+                                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                                    <Avatar sx={{ width: 60, height: 60, mb: 1 }}>
+                                        {interlocutorName[0]?.toUpperCase()}
+                                    </Avatar>
+                                    <Typography variant="body2" color="white">
+                                        {interlocutorName}
+                                    </Typography>
+                                    <Typography variant="caption" color="grey.400">
+                                        Камера выключена
+                                    </Typography>
+                                </Box>
+                            )}
+
+                            {/* Локальное видео */}
+                            {isVideoEnabled && localStream && (
+                                <Box sx={{
+                                    height: 120,
+                                    backgroundColor: '#222',
+                                    borderTop: '1px solid #444',
+                                    position: 'relative',
+                                    overflow: 'hidden'
+                                }}>
+                                    <video
+                                        ref={localVideoRef}
+                                        autoPlay
+                                        muted
+                                        playsInline
+                                        style={{
+                                            width: '100%',
+                                            height: '100%',
+                                            objectFit: 'cover',
+                                            transform: 'scaleX(-1)'
+                                        }}
+                                    />
+                                </Box>
+                            )}
+
+                            {/* Контролы */}
+                            <Box sx={{ p: 1, display: 'flex', gap: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.8)' }}>
+                                <Fab
+                                    size="small"
+                                    color={isAudioEnabled ? 'default' : 'error'}
+                                    onClick={toggleAudio}
+                                >
+                                    {isAudioEnabled ? <MicIcon /> : <MicOffIcon />}
+                                </Fab>
+                                <Fab
+                                    size="small"
+                                    color={isVideoEnabled ? 'default' : 'error'}
+                                    onClick={toggleVideo}
+                                >
+                                    {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon />}
+                                </Fab>
+                            </Box>
+                        </Box>
+                    )}
+                </Box>
+            )}
+
+            {/* ВХОДЯЩИЙ ЗВОНОК */}
+            <Dialog 
+                open={callStatus === 'ringing'} 
+                onClose={declineCall}
+                maxWidth="xs" 
+                fullWidth
+            >
                 <DialogContent sx={{ textAlign: 'center', py: 4 }}>
                     <Avatar sx={{ width: 80, height: 80, margin: '0 auto 16px' }}>
                         {interlocutorName[0]?.toUpperCase()}
                     </Avatar>
-                    <Typography variant="h6">{interlocutorName}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                        {incomingCallVideo ? 'Видео' : 'Аудио'} звонок
+                    <Typography variant="h6" gutterBottom>
+                        {interlocutorName}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                        {incomingCallVideo ? 'Видео звонок' : 'Аудио звонок'}
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mt: 3 }}>
-                        <Fab color="error" onClick={declineCall}><CallEndIcon /></Fab>
-                        <Fab color="success" onClick={() => pendingOfferRef.current && answerCall(pendingOfferRef.current, incomingCallVideo)}>
+                        <Fab color="error" onClick={declineCall}>
+                            <CallEndIcon />
+                        </Fab>
+                        <Fab 
+                            color="success" 
+                            onClick={() => pendingOfferRef.current && answerCall(pendingOfferRef.current, incomingCallVideo)}
+                        >
                             <PhoneIcon />
                         </Fab>
                     </Box>
                 </DialogContent>
             </Dialog>
 
-            {/* Активный звонок */}
-            <Dialog open={isCalling} onClose={hangup} fullScreen PaperProps={{ sx: { backgroundColor: '#000' } }}>
-                <DialogContent sx={{ p: 0, height: '100vh', display: 'flex', flexDirection: 'column' }}>
-                    {/* Remote video */}
-                    <Box sx={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
-                        {remoteStream && remoteStream.getVideoTracks().length > 0 ? (
-                            <video 
-                                ref={remoteVideoRef} 
-                                autoPlay 
-                                playsInline 
-                                style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
-                            />
-                        ) : (
-                            <Box sx={{ textAlign: 'center' }}>
-                                <Avatar sx={{ width: 120, height: 120, margin: '0 auto 16px' }}>
-                                    {interlocutorName[0]?.toUpperCase()}
-                                </Avatar>
-                                <Typography variant="h5" color="white">{interlocutorName}</Typography>
-                                <Typography variant="body2" color="grey.400">
-                                    {remoteStream ? 'Камера выключена' : 'Соединение...'}
-                                </Typography>
-                            </Box>
-                        )}
-                    </Box>
-
-                    {/* Local video */}
-                    {isVideoEnabled && localStream && (
-                        <Box sx={{ position: 'absolute', top: 20, right: 20, width: 200, height: 150, borderRadius: 2, overflow: 'hidden', border: '3px solid #4CAF50', backgroundColor: '#000' }}>
-                            <video 
-                                ref={localVideoRef} 
-                                autoPlay 
-                                muted 
-                                playsInline 
-                                style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} 
-                            />
-                        </Box>
-                    )}
-
-                    {/* Controls */}
-                    <Box sx={{ p: 3, display: 'flex', justifyContent: 'center', gap: 2, backgroundColor: 'rgba(0,0,0,0.8)' }}>
-                        <Fab color={isAudioEnabled ? "default" : "error"} onClick={toggleAudio}>
-                            {isAudioEnabled ? <MicIcon /> : <MicOffIcon />}
-                        </Fab>
-                        <Fab color={isVideoEnabled ? "default" : "error"} onClick={toggleVideo}>
-                            {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon />}
-                        </Fab>
-                        <Fab color="error" onClick={hangup}><CallEndIcon /></Fab>
-                    </Box>
-                </DialogContent>
-            </Dialog>
-
-            {/* Hidden remote audio */}
+            {/* СКРЫТОЕ АУДИО */}
             <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
 
-            {/* Call buttons */}
-            {interlocutorId !== -1 && !isCalling && !isIncomingCall && (
-                <div style={{ display: 'flex', gap: 10, marginBottom: 10, padding: '0 10px' }}>
-                    <IconButton onClick={() => startCall(false)} color="secondary"><PhoneIcon /></IconButton>
-                    <IconButton onClick={() => startCall(true)} color="secondary"><VideocamIcon /></IconButton>
-                </div>
-            )}
-            
-            <section id='input'>
+            {/* ВВОД СООБЩЕНИЙ */}
+            <section id='input' style={{ padding: '10px', display: 'flex', gap: '10px' }}>
                 <TextField
                     style={{ flexGrow: 1 }}
                     color="secondary"
                     multiline
+                    maxRows={4}
                     placeholder="Написать..."
                     inputRef={inputRef}
                     disabled={interlocutorId === -1}
@@ -573,8 +819,12 @@ export default function Messenger() {
                         }
                     }}
                 />
-                <IconButton onClick={sendMessage} disabled={interlocutorId === -1} color="secondary">
-                    <SendIcon/>
+                <IconButton 
+                    onClick={sendMessage} 
+                    disabled={interlocutorId === -1} 
+                    color="secondary"
+                >
+                    <SendIcon />
                 </IconButton>
             </section>
         </div>
