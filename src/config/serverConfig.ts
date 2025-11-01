@@ -6,12 +6,9 @@ const PROD_SERVER = 'https://zivan.duckdns.org';
 const DEV_SERVER = 'http://localhost:8000';
 
 export const getServerUrl = (): string => {
-  // Если на Vercel или в production - всегда используй prod сервер
-  if (window.location.hostname.includes('vercel.app') || 
-      window.location.hostname === 'zivan.vercel.app') {
+  if (window.location.hostname.includes('vercel.app')) {
     return PROD_SERVER;
   }
-  
   return isDevelopment ? DEV_SERVER : PROD_SERVER;
 };
 

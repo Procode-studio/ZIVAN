@@ -25,18 +25,13 @@ export const getTurnServers = async (): Promise<RTCIceServer[]> => {
     try {
         console.log('[TURN] Fetching credentials...');
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 сек, не 5!
-
+        // БЕЗ timeout - просто делай запрос
         const response = await fetch(`${getServerUrl()}/turn-credentials`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json'
-            },
-            signal: controller.signal
+            }
         });
-
-        clearTimeout(timeoutId);
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -64,14 +59,14 @@ export const getTurnServers = async (): Promise<RTCIceServer[]> => {
                         username: String(data.username),
                         credential: String(data.password)
                     });
-                    console.log('[TURN] ✅ Credentials loaded');
+                    console.log('[TURN] ✅ Loaded with TURN');
                 }
             }
         }
 
         return iceServers;
     } catch (error) {
-        console.warn('[TURN] Fallback to STUN:', error);
+        console.warn('[TURN] Using STUN only');
         return [
             {
                 urls: FALLBACK_STUN_SERVERS
