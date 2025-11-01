@@ -29,7 +29,7 @@ import { UserInfoContext } from "../../App";
 import axios from "axios";
 import InterlocutorProfile from "../../Mobile/components/InterlocutorProfile";
 import { getServerUrl, getWsUrl } from '../../config/serverConfig';
-import { getTurnServers } from '../../config/turnConfig';
+import { getTurnServers, validateIceServers } from '../../config/turnConfig';
 
 interface ExtendedMessage extends MessageType {
     is_read: boolean;
@@ -81,11 +81,8 @@ export default function Messenger() {
         const loadTurnServers = async () => {
             try {
                 const servers = await getTurnServers();
-                if (servers?.length) {
-                    setIceServers(servers);
-                } else {
-                    setIceServers([{ urls: 'stun:stun.l.google.com:19302' }]);
-                }
+                const validated = validateIceServers(servers);
+                setIceServers(validated);
             } catch (err) {
                 console.error('[Setup] Failed to load TURN servers:', err);
                 setIceServers([{ urls: 'stun:stun.l.google.com:19302' }]);
