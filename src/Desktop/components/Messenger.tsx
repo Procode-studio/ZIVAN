@@ -469,8 +469,17 @@ export default function Messenger() {
     // ===== WEBSOCKET СОЕДИНЕНИЕ =====
     useEffect(() => {
         if (interlocutorId === -1 || !user_id || user_id === -1) {
-            wsRef.current = null;
+            if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
+            }
             setWsConnected(false);
+            return;
+        }
+
+        // Если уже подключены - не переподключаемся!
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            console.log('[WS] Already connected, skipping');
             return;
         }
 
@@ -517,16 +526,22 @@ export default function Messenger() {
                                 ).then(() => {
                                     remoteDescriptionSetRef.current = true;
                                     setCallStatus('connected');
-                                }).catch(e => console.warn('[RTC] setRemoteDescription error:', e));
+                                    console.log('[RTC] setRemoteDescription(answer) ✅');
+                                }).catch(e => {
+                                    console.error('[RTC] setRemoteDescription(answer) error:', e);
+                                });
                             }
                         } else if (type === 'ice-candidate' && data.author !== user_id) {
                             if (peerConnectionRef.current && data.candidate) {
                                 if (!remoteDescriptionSetRef.current) {
+                                    console.log('[RTC] queue remote ICE');
                                     pendingRemoteCandidatesRef.current.push(data.candidate);
                                 } else {
                                     peerConnectionRef.current.addIceCandidate(
                                         new RTCIceCandidate(data.candidate)
-                                    ).catch(e => console.warn('[RTC] addIceCandidate error:', e));
+                                    ).catch(e => { 
+                                        console.warn('[RTC] addIceCandidate error', e); 
+                                    });
                                 }
                             }
                         } else if (type === 'hangup' && data.author !== user_id) {
@@ -547,9 +562,9 @@ export default function Messenger() {
                 };
 
                 ws.onclose = () => {
+                    console.log('[WS] Closed');
                     wsRef.current = null;
                     setWsConnected(false);
-                    console.log('[WS] Closed');
 
                     if (!isIntentionallyClosed) {
                         reconnectTimeout = setTimeout(connect, 3000);
@@ -571,7 +586,7 @@ export default function Messenger() {
                 wsRef.current = null;
             }
         };
-    }, [user_id, interlocutorId, hangup]);
+    }, [user_id, interlocutorId]);
 
     // ===== РЕНДЕР СТАТУСА =====
     const getStatusText = () => {
