@@ -188,13 +188,14 @@ export default function Messenger() {
                     console.log('[RTC] Remote stream tracks:', stream.getTracks().map(t => t.kind));
                     setRemoteStream(stream);
 
-                    if (e.track.kind === 'video' && remoteVideoRef.current) {
+                    // Применяем stream сразу к элементам
+                    if (remoteVideoRef.current) {
                         remoteVideoRef.current.srcObject = stream;
                         remoteVideoRef.current.play().catch(err => 
                             console.warn('[RTC] Video play error:', err)
                         );
                     }
-                    if (e.track.kind === 'audio' && remoteAudioRef.current) {
+                    if (remoteAudioRef.current) {
                         remoteAudioRef.current.srcObject = stream;
                         remoteAudioRef.current.muted = false;
                         remoteAudioRef.current.play().catch(err => 
@@ -736,8 +737,8 @@ export default function Messenger() {
                             flexDirection: 'column',
                             backgroundColor: '#000'
                         }}>
-                            {remoteStream && remoteStream.getVideoTracks().length > 0 ? (
-                                <Box sx={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
+                                <Box sx={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
                                     <video
                                         ref={remoteVideoRef}
                                         autoPlay
@@ -745,12 +746,12 @@ export default function Messenger() {
                                         style={{
                                             width: '100%',
                                             height: '100%',
-                                            objectFit: 'cover'
+                                            objectFit: 'contain'
                                         }}
                                     />
                                 </Box>
                             ) : (
-                                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', backgroundColor: '#000' }}>
                                     <Avatar sx={{ width: 60, height: 60, mb: 1 }}>
                                         {interlocutorName[0]?.toUpperCase()}
                                     </Avatar>
@@ -763,7 +764,7 @@ export default function Messenger() {
                                 </Box>
                             )}
 
-                            {isVideoEnabled && localStream && (
+                            {isVideoEnabled && localStream && localStream.getVideoTracks().length > 0 && (
                                 <Box sx={{
                                     height: 120,
                                     backgroundColor: '#222',
@@ -794,13 +795,15 @@ export default function Messenger() {
                                 >
                                     {isAudioEnabled ? <MicIcon /> : <MicOffIcon />}
                                 </Fab>
-                                <Fab
-                                    size="small"
-                                    color={isVideoEnabled ? 'default' : 'error'}
-                                    onClick={toggleVideo}
-                                >
-                                    {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon />}
-                                </Fab>
+                                {localStream && localStream.getVideoTracks().length > 0 && (
+                                    <Fab
+                                        size="small"
+                                        color={isVideoEnabled ? 'default' : 'error'}
+                                        onClick={toggleVideo}
+                                    >
+                                        {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon />}
+                                    </Fab>
+                                )}
                             </Box>
                         </Box>
                     )}

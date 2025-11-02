@@ -195,13 +195,14 @@ export default function MobileMessenger() {
                     console.log('[RTC] Remote stream tracks:', stream.getTracks().map(t => t.kind));
                     setRemoteStream(stream);
 
-                    if (e.track.kind === 'video' && remoteVideoRef.current) {
+                    // Применяем stream сразу к элементам
+                    if (remoteVideoRef.current) {
                         remoteVideoRef.current.srcObject = stream;
                         remoteVideoRef.current.play().catch(err => 
                             console.warn('[RTC] Video play error:', err)
                         );
                     }
-                    if (e.track.kind === 'audio' && remoteAudioRef.current) {
+                    if (remoteAudioRef.current) {
                         remoteAudioRef.current.srcObject = stream;
                         remoteAudioRef.current.muted = false;
                         remoteAudioRef.current.play().catch(err => 
@@ -716,9 +717,9 @@ export default function MobileMessenger() {
                             fullScreen
                             PaperProps={{ sx: { backgroundColor: '#000' } }}
                         >
-                            <DialogContent sx={{ p: 0, height: '100vh', display: 'flex', flexDirection: 'column' }}>
-                                {remoteStream && remoteStream.getVideoTracks().length > 0 ? (
-                                    <Box sx={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <DialogContent sx={{ p: 0, height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                                {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
+                                    <Box sx={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
                                         <video
                                             ref={remoteVideoRef}
                                             autoPlay
@@ -726,12 +727,12 @@ export default function MobileMessenger() {
                                             style={{
                                                 width: '100%',
                                                 height: '100%',
-                                                objectFit: 'cover'
+                                                objectFit: 'contain'
                                             }}
                                         />
                                     </Box>
                                 ) : (
-                                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', backgroundColor: '#000' }}>
                                         <Avatar sx={{ width: 80, height: 80, mb: 2 }}>
                                             {interlocutorName[0]?.toUpperCase()}
                                         </Avatar>
@@ -744,7 +745,7 @@ export default function MobileMessenger() {
                                     </Box>
                                 )}
 
-                                {isVideoEnabled && localStream && (
+                                {isVideoEnabled && localStream && localStream.getVideoTracks().length > 0 && (
                                     <Box sx={{
                                         position: 'absolute',
                                         bottom: 80,
@@ -754,7 +755,8 @@ export default function MobileMessenger() {
                                         borderRadius: 2,
                                         overflow: 'hidden',
                                         border: '2px solid #4CAF50',
-                                        backgroundColor: '#222'
+                                        backgroundColor: '#222',
+                                        zIndex: 10
                                     }}>
                                         <video
                                             ref={localVideoRef}
@@ -771,7 +773,7 @@ export default function MobileMessenger() {
                                     </Box>
                                 )}
 
-                                <Box sx={{ p: 2, display: 'flex', gap: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.8)' }}>
+                                <Box sx={{ p: 2, display: 'flex', gap: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.8)', position: 'relative', zIndex: 20 }}>
                                     <Fab
                                         size="medium"
                                         color={isAudioEnabled ? 'default' : 'error'}
@@ -779,13 +781,15 @@ export default function MobileMessenger() {
                                     >
                                         {isAudioEnabled ? <MicIcon /> : <MicOffIcon />}
                                     </Fab>
-                                    <Fab
-                                        size="medium"
-                                        color={isVideoEnabled ? 'default' : 'error'}
-                                        onClick={toggleVideo}
-                                    >
-                                        {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon />}
-                                    </Fab>
+                                    {localStream && localStream.getVideoTracks().length > 0 && (
+                                        <Fab
+                                            size="medium"
+                                            color={isVideoEnabled ? 'default' : 'error'}
+                                            onClick={toggleVideo}
+                                        >
+                                            {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon />}
+                                        </Fab>
+                                    )}
                                     <Fab
                                         size="medium"
                                         color="error"
