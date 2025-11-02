@@ -27,7 +27,6 @@ import './messenger.css';
 import { MessengerInterlocutorId } from "../pages/MessengerPage";
 import { UserInfoContext } from "../../App";
 import axios from "axios";
-import InterlocutorProfile from "../../Mobile/components/InterlocutorProfile";
 import { getServerUrl, getWsUrl } from '../../config/serverConfig';
 import { getTurnServers, validateIceServers } from '../../config/turnConfig';
 
@@ -69,6 +68,8 @@ export default function Messenger() {
     const pendingRemoteCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
     const remoteDescriptionSetRef = useRef(false);
     const hangupProcessingRef = useRef(false);
+    const [callDuration, setCallDuration] = useState(0);
+    const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     useEffect(() => {
         const loadTurnServers = async () => {
@@ -76,14 +77,32 @@ export default function Messenger() {
                 const servers = await getTurnServers();
                 const validated = validateIceServers(servers);
                 setIceServers(validated);
-                console.log('[Setup] ICE servers loaded:', validated);
             } catch (err) {
-                console.error('[Setup] Failed to load TURN servers:', err);
                 setIceServers([{ urls: 'stun:stun.l.google.com:19302' }]);
             }
         };
         loadTurnServers();
     }, []);
+
+    useEffect(() => {
+        if (callStatus === 'connected') {
+            setCallDuration(0);
+            callTimerRef.current = setInterval(() => {
+                setCallDuration(d => d + 1);
+            }, 1000);
+        } else {
+            if (callTimerRef.current) {
+                clearInterval(callTimerRef.current);
+                callTimerRef.current = null;
+            }
+            setCallDuration(0);
+        }
+        return () => {
+            if (callTimerRef.current) {
+                clearInterval(callTimerRef.current);
+            }
+        };
+    }, [callStatus]);
 
     useEffect(() => {
         if (interlocutorId === -1) {
@@ -102,7 +121,6 @@ export default function Messenger() {
             })
             .catch(err => {
                 if (!axios.isCancel(err)) {
-                    console.error('[Profile] Failed to load:', err);
                     setInterlocutorName(`User #${interlocutorId}`);
                 }
             });
@@ -142,7 +160,7 @@ export default function Messenger() {
             })
             .catch(err => {
                 if (!axios.isCancel(err)) {
-                    console.error('[Messages] Failed to load:', err);
+                    console.error('Failed to load messages');
                 }
                 setIsLoaded(true);
             });
@@ -152,12 +170,9 @@ export default function Messenger() {
 
     const createPeerConnection = useCallback(() => {
         try {
-            console.log('[RTC] Creating PeerConnection with ICE servers:', iceServers);
-            
             const config: RTCConfiguration = {
                 iceServers: iceServers?.length ? iceServers : [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
+                    { urls: 'stun:stun.l.google.com:19302' }
                 ],
                 iceCandidatePoolSize: 10,
                 bundlePolicy: 'max-bundle',
@@ -169,261 +184,57 @@ export default function Messenger() {
 
             pc.onicecandidate = (e) => {
                 if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
-                    console.log('[RTC] Sending ICE candidate:', e.candidate.type, e.candidate.protocol);
                     wsRef.current.send(JSON.stringify({
                         type: 'ice-candidate',
                         candidate: e.candidate.toJSON(),
                         author: user_id
                     }));
-                } else if (!e.candidate) {
-                    console.log('[RTC] ICE gathering complete');
                 }
             };
 
             pc.ontrack = (e) => {
-                console.log('[RTC] ontrack:', e.track.kind, 'streams:', e.streams.length);
-                
                 if (e.streams && e.streams[0]) {
                     const stream = e.streams[0];
-                    console.log('[RTC] Remote stream tracks:', stream.getTracks().map(t => t.kind));
                     setRemoteStream(stream);
 
-                    // Применяем stream сразу к элементам
-                    if (remoteVideoRef.current) {
-                        remoteVideoRef.current.srcObject = stream;
-                        remoteVideoRef.current.play().catch(err => 
-                            console.warn('[RTC] Video play error:', err)
-                        );
-                    }
-                    if (remoteAudioRef.current) {
-                        remoteAudioRef.current.srcObject = stream;
-                        remoteAudioRef.current.muted = false;
-                        remoteAudioRef.current.play().catch(err => 
-                            console.warn('[RTC] Audio play error:', err)
-                        );
-                    }
+                    setTimeout(() => {
+                        if (remoteVideoRef.current) {
+                            remoteVideoRef.current.srcObject = stream;
+                            remoteVideoRef.current.play().catch(() => {});
+                        }
+                        if (remoteAudioRef.current) {
+                            remoteAudioRef.current.srcObject = stream;
+                            remoteAudioRef.current.muted = false;
+                            remoteAudioRef.current.play().catch(() => {});
+                        }
+                    }, 100);
                 }
             };
 
             pc.onconnectionstatechange = () => {
-                console.log('[RTC] connectionState:', pc.connectionState);
                 if (pc.connectionState === 'connected') {
                     setCallStatus('connected');
-                    console.log('[RTC] ✅ Connection established!');
                 } else if (pc.connectionState === 'failed') {
-                    console.error('[RTC] Connection FAILED');
-                    alert('Не удалось установить соединение. Проверьте интернет.');
                     hangup();
-                } else if (pc.connectionState === 'disconnected') {
-                    console.warn('[RTC] Connection disconnected');
                 }
             };
 
             pc.oniceconnectionstatechange = () => {
-                console.log('[RTC] iceConnectionState:', pc.iceConnectionState);
                 if (pc.iceConnectionState === 'failed') {
-                    console.error('[RTC] ICE connection failed, restarting ICE...');
                     pc.restartIce();
                 }
-            };
-
-            pc.onicegatheringstatechange = () => {
-                console.log('[RTC] iceGatheringState:', pc.iceGatheringState);
             };
 
             peerConnectionRef.current = pc;
             remoteDescriptionSetRef.current = false;
             return pc;
         } catch (err) {
-            console.error('[RTC] Failed to create PeerConnection:', err);
             throw err;
         }
     }, [iceServers, user_id]);
-
-    const startCall = useCallback(async (withVideo: boolean) => {
-        if (interlocutorId === -1) {
-            console.warn('[Call] Invalid interlocutor ID');
-            return;
-        }
-
-        try {
-            setCallStatus('calling');
-            console.log(`[Call] Starting ${withVideo ? 'video' : 'audio'} call`);
-
-            const constraints = withVideo 
-                ? {
-                    audio: { 
-                        echoCancellation: true, 
-                        noiseSuppression: true,
-                        autoGainControl: true 
-                    },
-                    video: {
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 },
-                        frameRate: { ideal: 30 }
-                    }
-                  }
-                : { 
-                    audio: { 
-                        echoCancellation: true, 
-                        noiseSuppression: true 
-                    }, 
-                    video: false 
-                };
-
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            console.log('[Call] Got media stream:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`));
-
-            setLocalStream(stream);
-            setIsVideoEnabled(withVideo);
-            setIsAudioEnabled(true);
-
-            if (localVideoRef.current && withVideo) {
-                localVideoRef.current.srcObject = stream;
-            }
-
-            const pc = createPeerConnection();
-            
-            stream.getTracks().forEach(track => {
-                console.log('[Call] Adding local track:', track.kind);
-                pc.addTrack(track, stream);
-            });
-
-            console.log('[Call] Creating offer...');
-            const offer = await pc.createOffer({
-                offerToReceiveAudio: true,
-                offerToReceiveVideo: true
-            });
-
-            console.log('[Call] Setting local description...');
-            await pc.setLocalDescription(offer);
-
-            // Ждем, пока WebSocket будет готов
-            let attempts = 0;
-            while ((!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) && attempts < 50) {
-                console.log('[Call] Waiting for WebSocket... attempt', attempts);
-                await new Promise(resolve => setTimeout(resolve, 100));
-                attempts++;
-            }
-
-            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-                throw new Error('WebSocket not ready after waiting');
-            }
-
-            console.log('[Call] Sending offer to peer');
-            wsRef.current.send(JSON.stringify({
-                type: 'offer',
-                offer: pc.localDescription!.toJSON(),
-                author: user_id,
-                video: withVideo
-            }));
-
-            console.log('[Call] ✅ Offer sent successfully');
-        } catch (err) {
-            console.error('[Call] Failed to start:', err);
-            setCallStatus('failed');
-            
-            if (localStream) {
-                localStream.getTracks().forEach(t => t.stop());
-                setLocalStream(null);
-            }
-            
-            alert(`Не удалось начать звонок: ${err instanceof Error ? err.message : 'Проверьте разрешения'}`);
-            setTimeout(() => setCallStatus('idle'), 2000);
-        }
-    }, [interlocutorId, user_id, createPeerConnection, localStream]);
-
-    const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-        try {
-            console.log('[Call] Answering call...');
-            setCallStatus('connected');
-
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: true,
-                video: withVideo
-            });
-
-            console.log('[Call] Got media stream:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`));
-
-            setLocalStream(stream);
-            setIsVideoEnabled(withVideo);
-            setIsAudioEnabled(true);
-
-            if (localVideoRef.current && withVideo) {
-                localVideoRef.current.srcObject = stream;
-            }
-
-            const pc = createPeerConnection();
-
-            stream.getTracks().forEach(track => {
-                console.log('[Call] Adding local track:', track.kind);
-                pc.addTrack(track, stream);
-            });
-
-            console.log('[Call] Setting remote description (offer)...');
-            await pc.setRemoteDescription(new RTCSessionDescription(offer));
-            remoteDescriptionSetRef.current = true;
-            console.log('[Call] ✅ Remote description set');
-
-            if (pendingRemoteCandidatesRef.current.length > 0) {
-                console.log('[Call] Adding', pendingRemoteCandidatesRef.current.length, 'pending candidates');
-                for (const c of pendingRemoteCandidatesRef.current) {
-                    try {
-                        await pc.addIceCandidate(new RTCIceCandidate(c));
-                    } catch (e) {
-                        console.warn('[Call] Failed to add pending candidate:', e);
-                    }
-                }
-                pendingRemoteCandidatesRef.current = [];
-            }
-
-            console.log('[Call] Creating answer...');
-            const answer = await pc.createAnswer();
-            
-            console.log('[Call] Setting local description...');
-            await pc.setLocalDescription(answer);
-
-            console.log('[Call] Sending answer to peer');
-            wsRef.current.send(JSON.stringify({
-                type: 'answer',
-                answer: pc.localDescription!.toJSON(),
-                author: user_id
-            }));
-
-            console.log('[Call] ✅ Answer sent successfully');
-        } catch (err) {
-            console.error('[Call] Failed to answer:', err);
-            setCallStatus('failed');
-            alert('Не удалось ответить на звонок');
-            setTimeout(() => setCallStatus('idle'), 2000);
-        }
-    }, [user_id, createPeerConnection]);
-
-    const toggleAudio = useCallback(() => {
-        if (!localStream) return;
-        const track = localStream.getAudioTracks()[0];
-        if (track) {
-            track.enabled = !track.enabled;
-            setIsAudioEnabled(track.enabled);
-        }
-    }, [localStream]);
-
-    const toggleVideo = useCallback(() => {
-        if (!localStream) return;
-        const track = localStream.getVideoTracks()[0];
-        if (track) {
-            track.enabled = !track.enabled;
-            setIsVideoEnabled(track.enabled);
-        }
-    }, [localStream]);
-
     const hangup = useCallback(() => {
         if (hangupProcessingRef.current) return;
         hangupProcessingRef.current = true;
-
-        console.log('[Call] Hanging up...');
 
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
@@ -457,6 +268,139 @@ export default function Messenger() {
             hangupProcessingRef.current = false;
         }, 1000);
     }, [user_id, localStream]);
+
+    const startCall = useCallback(async (withVideo: boolean) => {
+        if (interlocutorId === -1) return;
+
+        try {
+            setCallStatus('calling');
+
+            const constraints = withVideo 
+                ? {
+                    audio: { echoCancellation: true, noiseSuppression: true },
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+                  }
+                : { audio: true, video: false };
+
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+            setLocalStream(stream);
+            setIsVideoEnabled(withVideo);
+            setIsAudioEnabled(true);
+
+            if (localVideoRef.current && withVideo) {
+                localVideoRef.current.srcObject = stream;
+            }
+
+            const pc = createPeerConnection();
+            
+            stream.getTracks().forEach(track => {
+                pc.addTrack(track, stream);
+            });
+
+            const offer = await pc.createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true
+            });
+
+            await pc.setLocalDescription(offer);
+
+            let attempts = 0;
+            while ((!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) && attempts < 50) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+
+            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+                throw new Error('WebSocket not ready');
+            }
+
+            wsRef.current.send(JSON.stringify({
+                type: 'offer',
+                offer: pc.localDescription!.toJSON(),
+                author: user_id,
+                video: withVideo
+            }));
+        } catch (err) {
+            setCallStatus('failed');
+            
+            if (localStream) {
+                localStream.getTracks().forEach(t => t.stop());
+                setLocalStream(null);
+            }
+            
+            setTimeout(() => setCallStatus('idle'), 2000);
+        }
+    }, [interlocutorId, user_id, createPeerConnection, localStream]);
+
+    const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+        try {
+            setCallStatus('connected');
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: withVideo
+            });
+
+            setLocalStream(stream);
+            setIsVideoEnabled(withVideo);
+            setIsAudioEnabled(true);
+
+            if (localVideoRef.current && withVideo) {
+                localVideoRef.current.srcObject = stream;
+            }
+
+            const pc = createPeerConnection();
+
+            stream.getTracks().forEach(track => {
+                pc.addTrack(track, stream);
+            });
+
+            await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            remoteDescriptionSetRef.current = true;
+
+            if (pendingRemoteCandidatesRef.current.length > 0) {
+                for (const c of pendingRemoteCandidatesRef.current) {
+                    try {
+                        await pc.addIceCandidate(new RTCIceCandidate(c));
+                    } catch (e) {}
+                }
+                pendingRemoteCandidatesRef.current = [];
+            }
+
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            wsRef.current.send(JSON.stringify({
+                type: 'answer',
+                answer: pc.localDescription!.toJSON(),
+                author: user_id
+            }));
+        } catch (err) {
+            setCallStatus('failed');
+            setTimeout(() => setCallStatus('idle'), 2000);
+        }
+    }, [user_id, createPeerConnection]);
+
+    const toggleAudio = useCallback(() => {
+        if (!localStream) return;
+        const track = localStream.getAudioTracks()[0];
+        if (track) {
+            track.enabled = !track.enabled;
+            setIsAudioEnabled(track.enabled);
+        }
+    }, [localStream]);
+
+    const toggleVideo = useCallback(() => {
+        if (!localStream) return;
+        const track = localStream.getVideoTracks()[0];
+        if (track) {
+            track.enabled = !track.enabled;
+            setIsVideoEnabled(track.enabled);
+        }
+    }, [localStream]);
 
     const declineCall = useCallback(() => {
         pendingOfferRef.current = null;
@@ -500,7 +444,6 @@ export default function Messenger() {
         }
 
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            console.log('[WS] Already connected');
             return;
         }
 
@@ -508,7 +451,6 @@ export default function Messenger() {
         const id2 = Math.max(user_id, interlocutorId);
         const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}`;
         
-        console.log('[WS] Connecting to:', wsUrl);
         let reconnectTimeout: ReturnType<typeof setTimeout>;
         let isIntentionallyClosed = false;
 
@@ -519,7 +461,7 @@ export default function Messenger() {
                 ws.onopen = () => {
                     wsRef.current = ws;
                     setWsConnected(true);
-                    console.log('[WS] ✅ Connected');
+                    setInterlocutorOnline(true);
                 };
 
                 ws.onmessage = (event) => {
@@ -537,78 +479,65 @@ export default function Messenger() {
                                 created_at: new Date().toISOString()
                             }]);
                         } else if (type === 'offer' && data.author !== user_id) {
-                            console.log('[WS] Received offer');
                             pendingOfferRef.current = data.offer;
                             setIncomingCallVideo(data.video || false);
                             setCallStatus('ringing');
                         } else if (type === 'answer' && data.author !== user_id) {
-                            console.log('[WS] Received answer');
                             if (peerConnectionRef.current && data.answer) {
                                 peerConnectionRef.current.setRemoteDescription(
                                     new RTCSessionDescription(data.answer)
                                 ).then(() => {
                                     remoteDescriptionSetRef.current = true;
-                                    console.log('[RTC] ✅ Remote description (answer) set');
                                     
                                     if (pendingRemoteCandidatesRef.current.length > 0) {
-                                        console.log('[RTC] Adding pending candidates');
                                         pendingRemoteCandidatesRef.current.forEach(async (c) => {
                                             try {
                                                 await peerConnectionRef.current!.addIceCandidate(new RTCIceCandidate(c));
-                                            } catch (e) {
-                                                console.warn('[RTC] Failed to add candidate:', e);
-                                            }
+                                            } catch (e) {}
                                         });
                                         pendingRemoteCandidatesRef.current = [];
                                     }
-                                }).catch(e => {
-                                    console.error('[RTC] setRemoteDescription error:', e);
-                                });
+                                }).catch(() => {});
                             }
                         } else if (type === 'ice-candidate' && data.author !== user_id) {
                             if (peerConnectionRef.current && data.candidate) {
                                 if (remoteDescriptionSetRef.current) {
-                                    console.log('[RTC] Adding ICE candidate:', data.candidate.type);
                                     peerConnectionRef.current.addIceCandidate(
                                         new RTCIceCandidate(data.candidate)
-                                    ).catch(e => {
-                                        console.warn('[RTC] addIceCandidate error:', e);
-                                    });
+                                    ).catch(() => {});
                                 } else {
-                                    console.log('[RTC] Queueing ICE candidate');
                                     pendingRemoteCandidatesRef.current.push(data.candidate);
                                 }
                             }
                         } else if (type === 'hangup' && data.author !== user_id) {
-                            console.log('[WS] Received hangup');
                             hangup();
                         }
 
                         setTimeout(() => {
                             messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current?.scrollHeight || 0);
                         }, 10);
-                    } catch (e) {
-                        console.error('[WS] Message parse error:', e);
-                    }
+                    } catch (e) {}
                 };
 
-                ws.onerror = (err) => {
-                    console.error('[WS] Error:', err);
+                ws.onerror = () => {
                     setWsConnected(false);
+                    setInterlocutorOnline(false);
                 };
 
                 ws.onclose = () => {
-                    console.log('[WS] Closed');
-                    wsRef.current = null;
+                    if (wsRef.current === ws) {
+                        wsRef.current = null;
+                    }
                     setWsConnected(false);
+                    setInterlocutorOnline(false);
 
                     if (!isIntentionallyClosed) {
                         reconnectTimeout = setTimeout(connect, 3000);
                     }
                 };
             } catch (err) {
-                console.error('[WS] Connection failed:', err);
                 setWsConnected(false);
+                setInterlocutorOnline(false);
             }
         };
 
@@ -627,15 +556,26 @@ export default function Messenger() {
     const getStatusText = () => {
         if (callStatus === 'calling') return 'Вызов...';
         if (callStatus === 'ringing') return 'Входящий вызов';
-        if (callStatus === 'connected') return 'В разговоре';
-        if (interlocutorOnline) return 'Online';
-        return 'Offline';
+        if (callStatus === 'connected') {
+            const mins = Math.floor(callDuration / 60);
+            const secs = callDuration % 60;
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        if (wsConnected && interlocutorOnline) return 'В сети';
+        return 'Не в сети';
     };
 
-    const getStatusColor = () => {
-        if (callStatus !== 'idle') return 'error';
-        if (interlocutorOnline) return 'success';
+    const getStatusColor = (): "default" | "error" | "success" | "primary" | "secondary" | "info" | "warning" => {
+        if (callStatus === 'calling' || callStatus === 'ringing') return 'warning';
+        if (callStatus === 'connected') return 'error';
+        if (wsConnected && interlocutorOnline) return 'success';
         return 'default';
+    };
+
+    const formatTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
     return (
@@ -664,20 +604,18 @@ export default function Messenger() {
                                 <IconButton 
                                     onClick={() => startCall(false)} 
                                     color="primary"
-                                    title="Аудио звонок"
                                 >
                                     <PhoneIcon />
                                 </IconButton>
                                 <IconButton 
                                     onClick={() => startCall(true)} 
                                     color="primary"
-                                    title="Видео звонок"
                                 >
                                     <VideocamIcon />
                                 </IconButton>
                             </>
                         )}
-                        {callStatus !== 'idle' && (
+                        {callStatus !== 'idle' && callStatus !== 'ringing' && (
                             <Fab 
                                 color="error" 
                                 size="small"
@@ -729,16 +667,17 @@ export default function Messenger() {
                         ))}
                     </section>
 
-                    {callStatus !== 'idle' && (remoteStream || isVideoEnabled) && (
+                    {(callStatus === 'calling' || callStatus === 'connected') && (
                         <Box sx={{
-                            width: 300,
+                            width: 400,
                             borderLeft: '1px solid #ccc',
                             display: 'flex',
                             flexDirection: 'column',
-                            backgroundColor: '#000'
+                            backgroundColor: '#000',
+                            position: 'relative'
                         }}>
-                            {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
-                                <Box sx={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }}>
+                            <Box sx={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a' }}>
+                                {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
                                     <video
                                         ref={remoteVideoRef}
                                         autoPlay
@@ -749,61 +688,90 @@ export default function Messenger() {
                                             objectFit: 'contain'
                                         }}
                                     />
-                                </Box>
-                            ) : (
-                                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', backgroundColor: '#000' }}>
-                                    <Avatar sx={{ width: 60, height: 60, mb: 1 }}>
-                                        {interlocutorName[0]?.toUpperCase()}
-                                    </Avatar>
-                                    <Typography variant="body2" color="white">
-                                        {interlocutorName}
-                                    </Typography>
-                                    <Typography variant="caption" color="grey.400">
-                                        Камера выключена
-                                    </Typography>
-                                </Box>
-                            )}
+                                ) : (
+                                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                        <Avatar sx={{ width: 100, height: 100, bgcolor: '#4CAF50', fontSize: 40 }}>
+                                            {interlocutorName[0]?.toUpperCase()}
+                                        </Avatar>
+                                        <Typography variant="h6" color="white">
+                                            {interlocutorName}
+                                        </Typography>
+                                        {callStatus === 'calling' && (
+                                            <Typography variant="body2" color="grey.400">
+                                                Вызов...
+                                            </Typography>
+                                        )}
+                                        {callStatus === 'connected' && (
+                                            <Typography variant="body2" color="grey.400">
+                                                {formatTime(callDuration)}
+                                            </Typography>
+                                        )}
+                                    </Box>
+                                )}
 
-                            {isVideoEnabled && localStream && localStream.getVideoTracks().length > 0 && (
-                                <Box sx={{
-                                    height: 120,
-                                    backgroundColor: '#222',
-                                    borderTop: '1px solid #444',
-                                    position: 'relative',
-                                    overflow: 'hidden'
-                                }}>
-                                    <video
-                                        ref={localVideoRef}
-                                        autoPlay
-                                        muted
-                                        playsInline
-                                        style={{
-                                            width: '100%',
-                                            height: '100%',
-                                            objectFit: 'cover',
-                                            transform: 'scaleX(-1)'
-                                        }}
-                                    />
-                                </Box>
-                            )}
+                                {isVideoEnabled && localStream && localStream.getVideoTracks().length > 0 && (
+                                    <Box sx={{
+                                        position: 'absolute',
+                                        bottom: 100,
+                                        right: 16,
+                                        width: 160,
+                                        height: 120,
+                                        borderRadius: 2,
+                                        overflow: 'hidden',
+                                        border: '2px solid #4CAF50',
+                                        backgroundColor: '#222',
+                                        boxShadow: 3
+                                    }}>
+                                        <video
+                                            ref={localVideoRef}
+                                            autoPlay
+                                            muted
+                                            playsInline
+                                            style={{
+                                                width: '100%',
+                                                height: '100%',
+                                                objectFit: 'cover',
+                                                transform: 'scaleX(-1)'
+                                            }}
+                                        />
+                                    </Box>
+                                )}
+                            </Box>
 
-                            <Box sx={{ p: 1, display: 'flex', gap: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.8)' }}>
+                            <Box sx={{ 
+                                p: 2, 
+                                display: 'flex', 
+                                gap: 2, 
+                                justifyContent: 'center', 
+                                alignItems: 'center',
+                                backgroundColor: 'rgba(0,0,0,0.9)',
+                                borderTop: '1px solid #333'
+                            }}>
                                 <Fab
-                                    size="small"
+                                    size="medium"
                                     color={isAudioEnabled ? 'default' : 'error'}
                                     onClick={toggleAudio}
+                                    sx={{ bgcolor: isAudioEnabled ? '#424242' : undefined }}
                                 >
                                     {isAudioEnabled ? <MicIcon /> : <MicOffIcon />}
                                 </Fab>
                                 {localStream && localStream.getVideoTracks().length > 0 && (
                                     <Fab
-                                        size="small"
+                                        size="medium"
                                         color={isVideoEnabled ? 'default' : 'error'}
                                         onClick={toggleVideo}
+                                        sx={{ bgcolor: isVideoEnabled ? '#424242' : undefined }}
                                     >
                                         {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon />}
                                     </Fab>
                                 )}
+                                <Fab
+                                    size="medium"
+                                    color="error"
+                                    onClick={hangup}
+                                >
+                                    <CallEndIcon />
+                                </Fab>
                             </Box>
                         </Box>
                     )}
@@ -817,7 +785,7 @@ export default function Messenger() {
                 fullWidth
             >
                 <DialogContent sx={{ textAlign: 'center', py: 4 }}>
-                    <Avatar sx={{ width: 80, height: 80, margin: '0 auto 16px' }}>
+                    <Avatar sx={{ width: 80, height: 80, margin: '0 auto 16px', bgcolor: '#4CAF50' }}>
                         {interlocutorName[0]?.toUpperCase()}
                     </Avatar>
                     <Typography variant="h6" gutterBottom>
