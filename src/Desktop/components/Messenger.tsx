@@ -240,10 +240,8 @@ export default function Messenger() {
     }, [iceServers, user_id]);
 
     const startCall = useCallback(async (withVideo: boolean) => {
-        if (interlocutorId === -1 || !wsRef.current) return;
-        if (wsRef.current.readyState !== WebSocket.OPEN) {
-            console.warn('[Call] WebSocket not ready');
-            alert('Соединение не установлено');
+        if (interlocutorId === -1) {
+            console.warn('[Call] Invalid interlocutor ID');
             return;
         }
 
@@ -299,6 +297,18 @@ export default function Messenger() {
             console.log('[Call] Setting local description...');
             await pc.setLocalDescription(offer);
 
+            // Ждем, пока WebSocket будет готов
+            let attempts = 0;
+            while ((!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) && attempts < 50) {
+                console.log('[Call] Waiting for WebSocket... attempt', attempts);
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+
+            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+                throw new Error('WebSocket not ready after waiting');
+            }
+
             console.log('[Call] Sending offer to peer');
             wsRef.current.send(JSON.stringify({
                 type: 'offer',
@@ -311,10 +321,16 @@ export default function Messenger() {
         } catch (err) {
             console.error('[Call] Failed to start:', err);
             setCallStatus('failed');
-            alert('Не удалось начать звонок. Проверьте разрешения.');
+            
+            if (localStream) {
+                localStream.getTracks().forEach(t => t.stop());
+                setLocalStream(null);
+            }
+            
+            alert(`Не удалось начать звонок: ${err instanceof Error ? err.message : 'Проверьте разрешения'}`);
             setTimeout(() => setCallStatus('idle'), 2000);
         }
-    }, [interlocutorId, user_id, createPeerConnection]);
+    }, [interlocutorId, user_id, createPeerConnection, localStream]);
 
     const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;

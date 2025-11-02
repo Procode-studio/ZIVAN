@@ -286,10 +286,8 @@ export default function MobileMessenger() {
     }, [user_id, localStream]);
 
     const startCall = useCallback(async (withVideo: boolean) => {
-        if (interlocutorId === -1 || !wsRef.current) return;
-        if (wsRef.current.readyState !== WebSocket.OPEN) {
-            console.warn('[Call] WebSocket not ready');
-            alert('Соединение не установлено');
+        if (interlocutorId === -1) {
+            console.warn('[Call] Invalid interlocutor ID');
             return;
         }
 
@@ -346,6 +344,18 @@ export default function MobileMessenger() {
             console.log('[Call] Setting local description...');
             await pc.setLocalDescription(offer);
 
+            // Ждем, пока WebSocket будет готов
+            let attempts = 0;
+            while ((!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) && attempts < 50) {
+                console.log('[Call] Waiting for WebSocket... attempt', attempts);
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+
+            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+                throw new Error('WebSocket not ready after waiting');
+            }
+
             console.log('[Call] Sending offer to peer');
             wsRef.current.send(JSON.stringify({
                 type: 'offer',
@@ -358,10 +368,16 @@ export default function MobileMessenger() {
         } catch (err) {
             console.error('[Call] Failed to start:', err);
             setCallStatus(CallStatus.FAILED);
-            alert('Не удалось начать звонок. Проверьте разрешения.');
+            
+            if (localStream) {
+                localStream.getTracks().forEach(t => t.stop());
+                setLocalStream(null);
+            }
+            
+            alert(`Не удалось начать звонок: ${err instanceof Error ? err.message : 'Проверьте разрешения'}`);
             setTimeout(() => setCallStatus(CallStatus.IDLE), 2000);
         }
-    }, [interlocutorId, user_id, createPeerConnection]);
+    }, [interlocutorId, user_id, createPeerConnection, localStream]);
 
     const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -482,8 +498,17 @@ export default function MobileMessenger() {
 
     useEffect(() => {
         if (interlocutorId === -1 || !user_id || user_id === -1) {
-            wsRef.current = null;
+            if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
+            }
             setWsConnected(false);
+            return;
+        }
+
+        // Если уже подключен к этому же чату - не переподключаемся
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            console.log('[WS] Already connected, skipping reconnect');
             return;
         }
 
@@ -577,11 +602,14 @@ export default function MobileMessenger() {
                 };
 
                 ws.onclose = () => {
-                    wsRef.current = null;
-                    setWsConnected(false);
                     console.log('[WS] Closed');
+                    if (wsRef.current === ws) {
+                        wsRef.current = null;
+                    }
+                    setWsConnected(false);
 
                     if (!isIntentionallyClosed) {
+                        console.log('[WS] Reconnecting in 3s...');
                         reconnectTimeout = setTimeout(connect, 3000);
                     }
                 };
