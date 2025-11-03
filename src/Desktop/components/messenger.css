@@ -1,6 +1,3 @@
-/* IMPROVED Messenger CSS */
-
-/* Main messenger container */
 #messenger {
     background: #212121;
     flex-grow: 1;
@@ -10,20 +7,21 @@
     padding: 10px;
     box-sizing: border-box;
     position: relative;
-    height: 100dvh;
-    max-height: 100dvh;
-    overflow-y: hidden;
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
 }
 
-/* FIXED: Messages container with smooth scrolling */
+/* FIXED: Messages container with proper scrolling */
 #messages {
     position: relative;
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
     box-sizing: border-box;
-    flex-grow: 1;
+    flex: 1;
+    min-height: 0; /* CRITICAL for flex scroll */
     overflow-y: auto;
     overflow-x: hidden;
     scroll-behavior: smooth;

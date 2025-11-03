@@ -432,8 +432,6 @@ export default function Messenger() {
     }, [interlocutorId, user_id, createPeerConnection, localStream]);
 
     const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
         try {
             console.log('[Call] Answering call...');
             setCallStatus('connected');
@@ -477,6 +475,18 @@ export default function Messenger() {
 
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+
+            // FIXED: Wait for WebSocket to be ready
+            let attempts = 0;
+            while ((!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) && attempts < 50) {
+                console.log('[Call] Waiting for WebSocket... attempt', attempts);
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+
+            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+                throw new Error('WebSocket not ready after waiting');
+            }
 
             wsRef.current.send(JSON.stringify({
                 type: 'answer',
@@ -853,40 +863,60 @@ export default function Messenger() {
                 </span>
             ) : (
                 <Box sx={{ display: 'flex', flex: 1 }}>
-                    <section id='messages' ref={messagesBlockRef} style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+                    <section id='messages' ref={messagesBlockRef} style={{ 
+                        flex: 1, 
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        padding: '16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                    }}>
                         {messages.length === 0 && <span id="no-messages-text">No messages yet</span>}
                         {messages.map((m, i) => (
                             <Box 
                                 key={i} 
-                                data-from={m.author === user_id ? 'me' : 'other'}
                                 sx={{ 
-                                    mb: 1.5, 
                                     display: 'flex',
                                     alignItems: 'flex-end',
-                                    gap: 0.5,
-                                    justifyContent: m.author === user_id ? 'flex-end' : 'flex-start'
+                                    gap: 1,
+                                    justifyContent: m.author === user_id ? 'flex-end' : 'flex-start',
+                                    animation: 'slideIn 0.3s ease-out'
                                 }}
                             >
+                                {m.author !== user_id && (
+                                    <Avatar sx={{ width: 32, height: 32, bgcolor: '#8BC34A', fontSize: 14 }}>
+                                        {interlocutorName[0]?.toUpperCase()}
+                                    </Avatar>
+                                )}
                                 <Paper
                                     sx={{
                                         p: 1.5,
+                                        px: 2,
                                         maxWidth: '60%',
-                                        bgcolor: m.author === user_id ? '#4CAF50' : '#3a3a3a',
+                                        bgcolor: m.author === user_id 
+                                            ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' 
+                                            : '#3a3a3a',
                                         color: 'white',
-                                        borderRadius: 2,
-                                        borderBottomRightRadius: m.author === user_id ? 0 : 2,
-                                        borderBottomLeftRadius: m.author !== user_id ? 0 : 2
+                                        borderRadius: 2.5,
+                                        borderBottomRightRadius: m.author === user_id ? 0 : 2.5,
+                                        borderBottomLeftRadius: m.author !== user_id ? 0 : 2.5,
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        wordWrap: 'break-word',
+                                        background: m.author === user_id 
+                                            ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' 
+                                            : '#3a3a3a'
                                     }}
                                 >
-                                    <Typography variant="body2">
+                                    <Typography variant="body2" sx={{ lineHeight: 1.5 }}>
                                         {m.text}
                                     </Typography>
                                 </Paper>
                                 {m.author === user_id && (
-                                    <Box sx={{ display: 'flex', alignItems: 'center', pb: 0.5 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', pb: 0.3 }}>
                                         {m.is_read ? 
-                                            <DoneAllIcon sx={{ fontSize: 16, color: '#4CAF50' }} /> : 
-                                            <CheckIcon sx={{ fontSize: 16, color: '#888' }} />
+                                            <DoneAllIcon sx={{ fontSize: 18, color: '#4CAF50' }} /> : 
+                                            <CheckIcon sx={{ fontSize: 18, color: '#888' }} />
                                         }
                                     </Box>
                                 )}

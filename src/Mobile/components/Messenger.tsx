@@ -1,11 +1,3 @@
-// Mobile Messenger - FIXED VERSION
-// Key improvements:
-// 1. Auto-scroll fixed
-// 2. Keyboard doesn't break UI
-// 3. Read receipts work correctly
-// 4. Status tracking fixed
-// 5. Incoming call dialog uncloseable
-
 import { 
     CircularProgress, 
     IconButton, 
@@ -860,45 +852,54 @@ export default function MobileMessenger() {
                                 overflowY: 'auto', 
                                 overflowX: 'hidden',
                                 padding: '16px',
-                                WebkitOverflowScrolling: 'touch' // FIXED: Smooth scrolling on iOS
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '10px',
+                                WebkitOverflowScrolling: 'touch'
                             }}
                         >
-                            {messages.length === 0 && <span>No messages yet</span>}
+                            {messages.length === 0 && <span style={{ textAlign: 'center', color: '#888', margin: 'auto' }}>No messages yet</span>}
                             {messages.map((m, i) => (
-                                <Stack
+                                <Box
                                     key={i}
-                                    direction="row"
                                     sx={{
-                                        mb: 1,
-                                        justifyContent: m.author === user_id ? 'flex-end' : 'flex-start',
+                                        display: 'flex',
                                         alignItems: 'flex-end',
-                                        gap: 0.5
+                                        gap: 0.5,
+                                        justifyContent: m.author === user_id ? 'flex-end' : 'flex-start'
                                     }}
                                 >
-                                    <Typography
-                                        variant="body2"
+                                    {m.author !== user_id && (
+                                        <Avatar sx={{ width: 28, height: 28, bgcolor: '#8BC34A', fontSize: 12 }}>
+                                            {interlocutorName[0]?.toUpperCase()}
+                                        </Avatar>
+                                    )}
+                                    <Paper
                                         sx={{
-                                            maxWidth: '70%',
                                             p: 1.5,
-                                            borderRadius: 2,
-                                            backgroundColor: m.author === user_id ? '#4CAF50' : '#555',
-                                            color: '#fff',
+                                            maxWidth: '75%',
+                                            bgcolor: m.author === user_id ? '#4CAF50' : '#3a3a3a',
+                                            color: 'white',
+                                            borderRadius: 2.5,
+                                            borderBottomRightRadius: m.author === user_id ? 0 : 2.5,
+                                            borderBottomLeftRadius: m.author !== user_id ? 0 : 2.5,
                                             wordWrap: 'break-word',
-                                            borderBottomRightRadius: m.author === user_id ? 0 : 2,
-                                            borderBottomLeftRadius: m.author !== user_id ? 0 : 2
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
                                         }}
                                     >
-                                        {m.text}
-                                    </Typography>
+                                        <Typography variant="body2" sx={{ lineHeight: 1.5 }}>
+                                            {m.text}
+                                        </Typography>
+                                    </Paper>
                                     {m.author === user_id && (
-                                        <Box sx={{ display: 'flex', alignItems: 'center', pb: 0.5 }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', pb: 0.3 }}>
                                             {m.is_read ? 
                                                 <DoneAllIcon sx={{ fontSize: 16, color: '#4CAF50' }} /> : 
                                                 <CheckIcon sx={{ fontSize: 16, color: '#888' }} />
                                             }
                                         </Box>
                                     )}
-                                </Stack>
+                                </Box>
                             ))}
                         </section>
                     )}
