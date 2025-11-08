@@ -56,6 +56,7 @@ export default function MobileMessenger() {
     const [wsConnected, setWsConnected] = useState(false);
     const [interlocutorName, setInterlocutorName] = useState('');
     const [interlocutorOnline, setInterlocutorOnline] = useState(false);
+    const lastPingTimeRef = useRef<number>(0);
     const [callStatus, setCallStatus] = useState<CallStatus>(CallStatus.IDLE);
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isAudioEnabled, setIsAudioEnabled] = useState(true);
@@ -184,60 +185,40 @@ export default function MobileMessenger() {
             const pc = new RTCPeerConnection(config);
             pc.onicecandidate = (e) => {
                 if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
-                    console.log('[RTC] Sending ICE candidate:', e.candidate.type, e.candidate.protocol);
                     wsRef.current.send(JSON.stringify({
                         type: 'ice-candidate',
                         candidate: e.candidate.toJSON(),
                         author: user_id
                     }));
-                } else if (!e.candidate) {
-                    console.log('[RTC] ICE gathering complete');
                 }
             };
             pc.ontrack = (e) => {
-                console.log('[RTC] ontrack:', e.track.kind, 'streams:', e.streams.length);
                 if (e.streams && e.streams[0]) {
                     const stream = e.streams[0];
-                    console.log('[RTC] Remote stream tracks:', stream.getTracks().map(t => t.kind));
                     setRemoteStream(stream);
-                    // Применяем stream сразу к элементам
                     if (remoteVideoRef.current) {
                         remoteVideoRef.current.srcObject = stream;
-                        remoteVideoRef.current.play().catch(err => 
-                            console.warn('[RTC] Video play error:', err)
-                        );
+                        remoteVideoRef.current.play().catch(() => {});
                     }
                     if (remoteAudioRef.current) {
                         remoteAudioRef.current.srcObject = stream;
                         remoteAudioRef.current.muted = false;
-                        remoteAudioRef.current.play().catch(err => 
-                            console.warn('[RTC] Audio play error:', err)
-                        );
+                        remoteAudioRef.current.play().catch(() => {});
                     }
                 }
             };
             pc.onconnectionstatechange = () => {
-                console.log('[RTC] connectionState:', pc.connectionState);
                 if (pc.connectionState === 'connected') {
                     setCallStatus(CallStatus.CONNECTED);
-                    console.log('[RTC] ✅ Connection established!');
                 } else if (pc.connectionState === 'failed') {
-                    console.error('[RTC] Connection FAILED');
-                    alert('Не удалось установить соединение. Проверьте интернет.');
+                    alert('Не удалось установить соединение');
                     hangup();
-                } else if (pc.connectionState === 'disconnected') {
-                    console.warn('[RTC] Connection disconnected');
                 }
             };
             pc.oniceconnectionstatechange = () => {
-                console.log('[RTC] iceConnectionState:', pc.iceConnectionState);
                 if (pc.iceConnectionState === 'failed') {
-                    console.error('[RTC] ICE connection failed, restarting ICE...');
                     pc.restartIce();
                 }
-            };
-            pc.onicegatheringstatechange = () => {
-                console.log('[RTC] iceGatheringState:', pc.iceGatheringState);
             };
             peerConnectionRef.current = pc;
             remoteDescriptionSetRef.current = false;
@@ -251,7 +232,6 @@ export default function MobileMessenger() {
     const hangup = useCallback(() => {
         if (hangupProcessingRef.current) return;
         hangupProcessingRef.current = true;
-        console.log('[Call] Hanging up...');
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
@@ -281,13 +261,9 @@ export default function MobileMessenger() {
     }, [user_id, localStream]);
 
     const startCall = useCallback(async (withVideo: boolean) => {
-        if (interlocutorId === -1) {
-            console.warn('[Call] Invalid interlocutor ID');
-            return;
-        }
+        if (interlocutorId === -1) return;
         try {
             setCallStatus(CallStatus.CALLING);
-            console.log(`[Call] Starting ${withVideo ? 'video' : 'audio'} call`);
             const constraints = withVideo 
                 ? {
                     audio: { 
@@ -310,7 +286,6 @@ export default function MobileMessenger() {
                     video: false 
                 };
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            console.log('[Call] Got media stream:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`));
             setLocalStream(stream);
             setIsVideoEnabled(withVideo);
             setIsAudioEnabled(true);
@@ -319,36 +294,28 @@ export default function MobileMessenger() {
             }
             const pc = createPeerConnection();
             stream.getTracks().forEach(track => {
-                console.log('[Call] Adding local track:', track.kind);
                 pc.addTrack(track, stream);
             });
-            console.log('[Call] Creating offer...');
             const offer = await pc.createOffer({
                 offerToReceiveAudio: true,
                 offerToReceiveVideo: true
             });
-            console.log('[Call] Setting local description...');
             await pc.setLocalDescription(offer);
-            // Ждем, пока WebSocket будет готов
             let attempts = 0;
             while ((!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) && attempts < 50) {
-                console.log('[Call] Waiting for WebSocket... attempt', attempts);
                 await new Promise(resolve => setTimeout(resolve, 100));
                 attempts++;
             }
             if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-                throw new Error('WebSocket not ready after waiting');
+                throw new Error('WebSocket not ready');
             }
-            console.log('[Call] Sending offer to peer');
             wsRef.current.send(JSON.stringify({
                 type: 'offer',
                 offer: pc.localDescription!.toJSON(),
                 author: user_id,
                 video: withVideo
             }));
-            console.log('[Call] ✅ Offer sent successfully');
         } catch (err) {
-            console.error('[Call] Failed to start:', err);
             setCallStatus(CallStatus.FAILED);
             if (localStream) {
                 localStream.getTracks().forEach(t => t.stop());
@@ -362,13 +329,11 @@ export default function MobileMessenger() {
     const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
         try {
-            console.log('[Call] Answering call...');
             setCallStatus(CallStatus.CONNECTED);
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
                 video: withVideo
             });
-            console.log('[Call] Got media stream:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`));
             setLocalStream(stream);
             setIsVideoEnabled(withVideo);
             setIsAudioEnabled(true);
@@ -377,37 +342,26 @@ export default function MobileMessenger() {
             }
             const pc = createPeerConnection();
             stream.getTracks().forEach(track => {
-                console.log('[Call] Adding local track:', track.kind);
                 pc.addTrack(track, stream);
             });
-            console.log('[Call] Setting remote description (offer)...');
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
             remoteDescriptionSetRef.current = true;
-            console.log('[Call] ✅ Remote description set');
             if (pendingRemoteCandidatesRef.current.length > 0) {
-                console.log('[Call] Adding', pendingRemoteCandidatesRef.current.length, 'pending candidates');
                 for (const c of pendingRemoteCandidatesRef.current) {
                     try {
                         await pc.addIceCandidate(new RTCIceCandidate(c));
-                    } catch (e) {
-                        console.warn('[Call] Failed to add pending candidate:', e);
-                    }
+                    } catch (e) {}
                 }
                 pendingRemoteCandidatesRef.current = [];
             }
-            console.log('[Call] Creating answer...');
             const answer = await pc.createAnswer();
-            console.log('[Call] Setting local description...');
             await pc.setLocalDescription(answer);
-            console.log('[Call] Sending answer to peer');
             wsRef.current.send(JSON.stringify({
                 type: 'answer',
                 answer: pc.localDescription!.toJSON(),
                 author: user_id
             }));
-            console.log('[Call] ✅ Answer sent successfully');
         } catch (err) {
-            console.error('[Call] Failed to answer:', err);
             setCallStatus(CallStatus.FAILED);
             alert('Не удалось ответить на звонок');
             setTimeout(() => setCallStatus(CallStatus.IDLE), 2000);
@@ -468,33 +422,61 @@ export default function MobileMessenger() {
                 wsRef.current = null;
             }
             setWsConnected(false);
+            setInterlocutorOnline(false);
             return;
         }
-        // Если уже подключен к этому же чату - не переподключаемся
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            console.log('[WS] Already connected, skipping reconnect');
             return;
         }
         const id1 = Math.min(user_id, interlocutorId);
         const id2 = Math.max(user_id, interlocutorId);
         const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}`;
-        console.log('[WS] Connecting to:', wsUrl);
         let reconnectTimeout: ReturnType<typeof setTimeout>;
         let isIntentionallyClosed = false;
+        let pingInterval: ReturnType<typeof setInterval>;
+        
         const connect = () => {
             try {
                 const ws = new WebSocket(wsUrl);
                 ws.onopen = () => {
                     wsRef.current = ws;
                     setWsConnected(true);
-                    setInterlocutorOnline(true); // Обновляем статус при подключении
-                    console.log('[WS] ✅ Connected');
+                    lastPingTimeRef.current = Date.now();
+                    
+                    // Отправляем ping каждые 5 секунд
+                    pingInterval = setInterval(() => {
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'ping', author: user_id }));
+                        }
+                    }, 5000);
+                    
+                    // Проверяем активность каждые 10 секунд
+                    const checkActivity = setInterval(() => {
+                        const timeSinceLastPing = Date.now() - lastPingTimeRef.current;
+                        setInterlocutorOnline(timeSinceLastPing < 15000); // 15 сек таймаут
+                    }, 10000);
                 };
+
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
                         const type = data.type || 'message';
-                        if (type === 'message') {
+                        
+                        // Обновляем время последней активности при любом сообщении от собеседника
+                        if (data.author !== user_id) {
+                            lastPingTimeRef.current = Date.now();
+                            setInterlocutorOnline(true);
+                        }
+                        
+                        if (type === 'pong' && data.author !== user_id) {
+                            lastPingTimeRef.current = Date.now();
+                            setInterlocutorOnline(true);
+                        } else if (type === 'ping' && data.author !== user_id) {
+                            // Отвечаем на ping
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'pong', author: user_id }));
+                            }
+                        } else if (type === 'message') {
                             setMessages(prev => [...prev, {
                                 id: Date.now(),
                                 text: data.text,
@@ -504,81 +486,72 @@ export default function MobileMessenger() {
                                 created_at: new Date().toISOString()
                             }]);
                         } else if (type === 'offer' && data.author !== user_id) {
-                            console.log('[WS] Received offer');
                             pendingOfferRef.current = data.offer;
                             setIncomingCallVideo(data.video || false);
                             setCallStatus(CallStatus.RINGING);
                         } else if (type === 'answer' && data.author !== user_id) {
-                            console.log('[WS] Received answer');
                             if (peerConnectionRef.current && data.answer) {
                                 peerConnectionRef.current.setRemoteDescription(
                                     new RTCSessionDescription(data.answer)
                                 ).then(() => {
                                     remoteDescriptionSetRef.current = true;
-                                    console.log('[RTC] ✅ Remote description (answer) set');
                                     if (pendingRemoteCandidatesRef.current.length > 0) {
-                                        console.log('[RTC] Adding pending candidates');
                                         pendingRemoteCandidatesRef.current.forEach(async (c) => {
                                             try {
                                                 await peerConnectionRef.current!.addIceCandidate(new RTCIceCandidate(c));
-                                            } catch (e) {
-                                                console.warn('[RTC] Failed to add candidate:', e);
-                                            }
+                                            } catch (e) {}
                                         });
                                         pendingRemoteCandidatesRef.current = [];
                                     }
-                                }).catch(e => console.warn('[RTC] setRemoteDescription error:', e));
+                                }).catch(() => {});
                             }
                         } else if (type === 'ice-candidate' && data.author !== user_id) {
                             if (peerConnectionRef.current && data.candidate) {
                                 if (remoteDescriptionSetRef.current) {
-                                    console.log('[RTC] Adding ICE candidate:', data.candidate.type);
                                     peerConnectionRef.current.addIceCandidate(
                                         new RTCIceCandidate(data.candidate)
-                                    ).catch(e => console.warn('[RTC] addIceCandidate error:', e));
+                                    ).catch(() => {});
                                 } else {
-                                    console.log('[RTC] Queueing ICE candidate');
                                     pendingRemoteCandidatesRef.current.push(data.candidate);
                                 }
                             }
                         } else if (type === 'hangup' && data.author !== user_id) {
-                            console.log('[WS] Received hangup');
                             hangup();
                         }
                         setTimeout(() => {
                             messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current?.scrollHeight || 0);
                         }, 10);
-                    } catch (e) {
-                        console.error('[WS] Message parse error:', e);
-                    }
+                    } catch (e) {}
                 };
-                ws.onerror = (err) => {
-                    console.error('[WS] Error:', err);
+
+                ws.onerror = () => {
                     setWsConnected(false);
-                    setInterlocutorOnline(false); // Считаем собеседника оффлайн при ошибке
+                    setInterlocutorOnline(false);
                 };
+
                 ws.onclose = () => {
-                    console.log('[WS] Closed');
                     if (wsRef.current === ws) {
                         wsRef.current = null;
                     }
                     setWsConnected(false);
-                    setInterlocutorOnline(false); // Считаем собеседника оффлайн при отключении
+                    setInterlocutorOnline(false);
+                    clearInterval(pingInterval);
                     if (!isIntentionallyClosed) {
-                        console.log('[WS] Reconnecting in 3s...');
                         reconnectTimeout = setTimeout(connect, 3000);
                     }
                 };
             } catch (err) {
-                console.error('[WS] Connection failed:', err);
                 setWsConnected(false);
                 setInterlocutorOnline(false);
             }
         };
+
         connect();
+
         return () => {
             isIntentionallyClosed = true;
             clearTimeout(reconnectTimeout);
+            clearInterval(pingInterval);
             if (wsRef.current) {
                 wsRef.current.close();
                 wsRef.current = null;
@@ -594,14 +567,14 @@ export default function MobileMessenger() {
             const secs = callDuration % 60;
             return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
-        if (wsConnected && interlocutorOnline) return 'В сети';
+        if (interlocutorOnline) return 'В сети';
         return 'Не в сети';
     };
 
     const getStatusColor = () => {
         if (callStatus === CallStatus.CALLING || callStatus === CallStatus.RINGING) return 'warning';
         if (callStatus === CallStatus.CONNECTED) return 'error';
-        if (wsConnected && interlocutorOnline) return 'success';
+        if (interlocutorOnline) return 'success';
         return 'default';
     };
 
@@ -611,21 +584,37 @@ export default function MobileMessenger() {
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const isInCall = useMemo(() => callStatus !== CallStatus.IDLE, [callStatus]);
-
     return (
-        <div id="messenger" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ 
+            height: '100vh',
+            width: '100vw',
+            display: 'flex', 
+            flexDirection: 'column',
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            overflow: 'hidden',
+            backgroundColor: '#212121'
+        }}>
+            {/* HEADER */}
             {isLoaded && (
-                <Paper sx={{ p: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <IconButton onClick={() => navigate('/friends')} size="small">
+                <Paper sx={{ 
+                    p: 1.5, 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    borderRadius: 0,
+                    flexShrink: 0
+                }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
+                        <IconButton onClick={() => navigate('/friends')} size="small" sx={{ flexShrink: 0 }}>
                             <ArrowBackIcon />
                         </IconButton>
-                        <Avatar sx={{ width: 36, height: 36 }}>
+                        <Avatar sx={{ width: 36, height: 36, flexShrink: 0 }}>
                             {interlocutorName[0]?.toUpperCase() || '?'}
                         </Avatar>
-                        <Box>
-                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', fontSize: '0.9rem' }} noWrap>
                                 {interlocutorName}
                             </Typography>
                             <Chip
@@ -633,24 +622,25 @@ export default function MobileMessenger() {
                                 color={getStatusColor()}
                                 size="small"
                                 variant="outlined"
+                                sx={{ height: 20, fontSize: '0.7rem' }}
                             />
                         </Box>
                     </Box>
                     {callStatus === CallStatus.IDLE ? (
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0 }}>
                             <IconButton 
                                 onClick={() => startCall(false)} 
                                 color="primary"
                                 size="small"
                             >
-                                <PhoneIcon />
+                                <PhoneIcon fontSize="small" />
                             </IconButton>
                             <IconButton 
                                 onClick={() => startCall(true)} 
                                 color="primary"
                                 size="small"
                             >
-                                <VideocamIcon />
+                                <VideocamIcon fontSize="small" />
                             </IconButton>
                         </Box>
                     ) : callStatus !== CallStatus.RINGING && (
@@ -658,223 +648,323 @@ export default function MobileMessenger() {
                             color="error" 
                             size="small"
                             onClick={hangup}
+                            sx={{ flexShrink: 0 }}
                         >
-                            <CallEndIcon />
+                            <CallEndIcon fontSize="small" />
                         </Fab>
                     )}
                 </Paper>
             )}
+
+            {/* CONTENT */}
             {!isLoaded ? (
-                <section style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <CircularProgress color="secondary" />
-                </section>
+                </Box>
             ) : interlocutorId === -1 ? (
-                <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
                     Выберите собеседника
-                </span>
+                </Box>
             ) : (
-                <Box sx={{ display: 'flex', flex: 1, flexDirection: 'column' }}>
-                    {(callStatus === CallStatus.CALLING || callStatus === CallStatus.CONNECTED) && (
-                        <Dialog
-                            open={true}
-                            onClose={hangup}
-                            fullScreen
-                            PaperProps={{ sx: { backgroundColor: '#000' } }}
-                        >
-                            <DialogContent sx={{ p: 0, height: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                                <Box sx={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a' }}>
-                                    {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
-                                        <video
-                                            ref={remoteVideoRef}
-                                            autoPlay
-                                            playsInline
-                                            style={{
-                                                width: '100%',
-                                                height: '100%',
-                                                objectFit: 'contain'
-                                            }}
-                                        />
-                                    ) : (
-                                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                                            <Avatar sx={{ width: 120, height: 120, bgcolor: '#4CAF50', fontSize: 48 }}>
-                                                {interlocutorName[0]?.toUpperCase()}
-                                            </Avatar>
-                                            <Typography variant="h5" color="white">
-                                                {interlocutorName}
-                                            </Typography>
-                                            {callStatus === CallStatus.CALLING && (
-                                                <Typography variant="body1" color="grey.400">
-                                                    Вызов...
-                                                </Typography>
-                                            )}
-                                            {callStatus === CallStatus.CONNECTED && (
-                                                <Typography variant="h6" color="grey.300">
-                                                    {formatTime(callDuration)}
-                                                </Typography>
-                                            )}
-                                        </Box>
-                                    )}
-                                    {isVideoEnabled && localStream && localStream.getVideoTracks().length > 0 && (
-                                        <Box sx={{
-                                            position: 'absolute',
-                                            bottom: 100,
-                                            right: 16,
-                                            width: 120,
-                                            height: 160,
-                                            borderRadius: 2,
-                                            overflow: 'hidden',
-                                            border: '2px solid #4CAF50',
-                                            backgroundColor: '#222',
-                                            boxShadow: 3,
-                                            zIndex: 10
-                                        }}>
-                                            <video
-                                                ref={localVideoRef}
-                                                autoPlay
-                                                muted
-                                                playsInline
-                                                style={{
-                                                    width: '100%',
-                                                    height: '100%',
-                                                    objectFit: 'cover',
-                                                    transform: 'scaleX(-1)'
-                                                }}
-                                            />
-                                        </Box>
-                                    )}
-                                </Box>
-                                <Box sx={{ 
-                                    p: 3, 
-                                    display: 'flex', 
-                                    gap: 2, 
-                                    justifyContent: 'center', 
-                                    alignItems: 'center',
-                                    backgroundColor: 'rgba(0,0,0,0.9)',
-                                    position: 'relative',
-                                    zIndex: 20
-                                }}>
-                                    <Fab
-                                        size="large"
-                                        color={isAudioEnabled ? 'default' : 'error'}
-                                        onClick={toggleAudio}
-                                        sx={{ bgcolor: isAudioEnabled ? '#424242' : undefined }}
-                                    >
-                                        {isAudioEnabled ? <MicIcon /> : <MicOffIcon />}
-                                    </Fab>
-                                    {localStream && localStream.getVideoTracks().length > 0 && (
-                                        <Fab
-                                            size="large"
-                                            color={isVideoEnabled ? 'default' : 'error'}
-                                            onClick={toggleVideo}
-                                            sx={{ bgcolor: isVideoEnabled ? '#424242' : undefined }}
-                                        >
-                                            {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon />}
-                                        </Fab>
-                                    )}
-                                    <Fab
-                                        size="large"
-                                        color="error"
-                                        onClick={hangup}
-                                    >
-                                        <CallEndIcon />
-                                    </Fab>
-                                </Box>
-                            </DialogContent>
-                        </Dialog>
-                    )}
+                <>
+                    {/* MESSAGES AREA */}
                     {callStatus === CallStatus.IDLE && (
-                        <section ref={messagesBlockRef} style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-                            {messages.length === 0 && <span>История пуста</span>}
-                            {messages.map((m, i) => (
-                                <Stack
-                                    key={i}
-                                    direction="row"
-                                    sx={{
-                                        mb: 1,
-                                        justifyContent: m.author === user_id ? 'flex-end' : 'flex-start',
-                                        alignItems: 'flex-end',
-                                        gap: 0.5
-                                    }}
-                                >
-                                    <Typography
-                                        variant="body2"
+                        <Box 
+                            ref={messagesBlockRef}
+                            sx={{ 
+                                flex: 1,
+                                overflowY: 'auto',
+                                overflowX: 'hidden',
+                                p: 2,
+                                WebkitOverflowScrolling: 'touch',
+                                '&::-webkit-scrollbar': {
+                                    width: '4px'
+                                },
+                                '&::-webkit-scrollbar-thumb': {
+                                    backgroundColor: '#888',
+                                    borderRadius: '4px'
+                                }
+                            }}
+                        >
+                            {messages.length === 0 ? (
+                                <Typography sx={{ textAlign: 'center', color: '#999', mt: 4 }}>
+                                    История пуста
+                                </Typography>
+                            ) : (
+                                messages.map((m, i) => (
+                                    <Stack
+                                        key={i}
+                                        direction="row"
                                         sx={{
-                                            maxWidth: '70%',
-                                            p: 1,
-                                            borderRadius: 2,
-                                            backgroundColor: m.author === user_id ? '#4CAF50' : '#555',
-                                            color: '#fff'
+                                            mb: 1.5,
+                                            justifyContent: m.author === user_id ? 'flex-end' : 'flex-start',
+                                            alignItems: 'flex-end',
+                                            gap: 0.5
                                         }}
                                     >
-                                        {m.text}
-                                    </Typography>
-                                    {m.author === user_id && (
-                                        <>
-                                            {m.is_read ? <DoneAllIcon sx={{ fontSize: 16 }} /> : <CheckIcon sx={{ fontSize: 16 }} />}
-                                        </>
-                                    )}
-                                </Stack>
-                            ))}
-                        </section>
+                                        <Box
+                                            sx={{
+                                                maxWidth: '75%',
+                                                p: 1.5,
+                                                borderRadius: 2,
+                                                backgroundColor: m.author === user_id ? '#4CAF50' : '#424242',
+                                                color: '#fff',
+                                                wordWrap: 'break-word'
+                                            }}
+                                        >
+                                            <Typography variant="body2">
+                                                {m.text}
+                                            </Typography>
+                                        </Box>
+                                        {m.author === user_id && (
+                                            m.is_read ? 
+                                                <DoneAllIcon sx={{ fontSize: 14, color: '#4CAF50' }} /> : 
+                                                <CheckIcon sx={{ fontSize: 14, color: '#999' }} />
+                                        )}
+                                    </Stack>
+                                ))
+                            )}
+                        </Box>
                     )}
-                </Box>
+
+                    {/* INPUT AREA - FIXED AT BOTTOM */}
+                    {callStatus === CallStatus.IDLE && (
+                        <Paper 
+                            elevation={4}
+                            sx={{ 
+                                p: 1.5,
+                                display: 'flex',
+                                gap: 1,
+                                alignItems: 'flex-end',
+                                borderRadius: 0,
+                                flexShrink: 0,
+                                backgroundColor: '#1e1e1e'
+                            }}
+                        >
+                            <TextField
+                                fullWidth
+                                color="secondary"
+                                multiline
+                                maxRows={3}
+                                placeholder="Написать..."
+                                inputRef={inputRef}
+                                disabled={interlocutorId === -1}
+                                variant="outlined"
+                                size="small"
+                                onKeyPress={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        sendMessage();
+                                    }
+                                }}
+                                sx={{
+                                    '& .MuiOutlinedInput-root': {
+                                        color: '#fff',
+                                        backgroundColor: '#2a2a2a',
+                                        '& fieldset': {
+                                            borderColor: '#444'
+                                        }
+                                    }
+                                }}
+                            />
+                            <IconButton
+                                onClick={sendMessage}
+                                disabled={interlocutorId === -1}
+                                color="secondary"
+                                sx={{ 
+                                    backgroundColor: '#4CAF50',
+                                    color: '#fff',
+                                    '&:hover': {
+                                        backgroundColor: '#45a049'
+                                    },
+                                    '&:disabled': {
+                                        backgroundColor: '#333'
+                                    }
+                                }}
+                            >
+                                <SendIcon />
+                            </IconButton>
+                        </Paper>
+                    )}
+                </>
             )}
+
+            {/* CALL SCREEN - FULLSCREEN DIALOG */}
+            <Dialog
+                open={callStatus === CallStatus.CALLING || callStatus === CallStatus.CONNECTED}
+                onClose={hangup}
+                fullScreen
+                PaperProps={{ 
+                    sx: { 
+                        backgroundColor: '#000',
+                        margin: 0,
+                        borderRadius: 0
+                    } 
+                }}
+            >
+                <DialogContent sx={{ 
+                    p: 0, 
+                    height: '100vh',
+                    width: '100vw',
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    position: 'relative',
+                    overflow: 'hidden'
+                }}>
+                    {/* REMOTE VIDEO/AVATAR */}
+                    <Box sx={{ 
+                        flex: 1, 
+                        position: 'relative', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        backgroundColor: '#1a1a1a',
+                        overflow: 'hidden'
+                    }}>
+                        {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
+                            <video
+                                ref={remoteVideoRef}
+                                autoPlay
+                                playsInline
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover'
+                                }}
+                            />
+                        ) : (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                <Avatar sx={{ width: 100, height: 100, bgcolor: '#4CAF50', fontSize: 40 }}>
+                                    {interlocutorName[0]?.toUpperCase()}
+                                </Avatar>
+                                <Typography variant="h5" color="white">
+                                    {interlocutorName}
+                                </Typography>
+                                {callStatus === CallStatus.CALLING && (
+                                    <Typography variant="body1" color="grey.400">
+                                        Вызов...
+                                    </Typography>
+                                )}
+                                {callStatus === CallStatus.CONNECTED && (
+                                    <Typography variant="h6" color="grey.300">
+                                        {formatTime(callDuration)}
+                                    </Typography>
+                                )}
+                            </Box>
+                        )}
+
+                        {/* LOCAL VIDEO PREVIEW */}
+                        {isVideoEnabled && localStream && localStream.getVideoTracks().length > 0 && (
+                            <Box sx={{
+                                position: 'absolute',
+                                top: 16,
+                                right: 16,
+                                width: 100,
+                                height: 140,
+                                borderRadius: 2,
+                                overflow: 'hidden',
+                                border: '2px solid #4CAF50',
+                                backgroundColor: '#222',
+                                boxShadow: 3,
+                                zIndex: 10
+                            }}>
+                                <video
+                                    ref={localVideoRef}
+                                    autoPlay
+                                    muted
+                                    playsInline
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                        transform: 'scaleX(-1)'
+                                    }}
+                                />
+                            </Box>
+                        )}
+                    </Box>
+
+                    {/* CALL CONTROLS */}
+                    <Box sx={{ 
+                        p: 3,
+                        pb: 5,
+                        display: 'flex', 
+                        gap: 2, 
+                        justifyContent: 'center', 
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(0,0,0,0.95)',
+                        position: 'relative',
+                        zIndex: 20
+                    }}>
+                        <Fab
+                            size="large"
+                            color={isAudioEnabled ? 'default' : 'error'}
+                            onClick={toggleAudio}
+                            sx={{ bgcolor: isAudioEnabled ? '#424242' : undefined }}
+                        >
+                            {isAudioEnabled ? <MicIcon /> : <MicOffIcon />}
+                        </Fab>
+                        {localStream && localStream.getVideoTracks().length > 0 && (
+                            <Fab
+                                size="large"
+                                color={isVideoEnabled ? 'default' : 'error'}
+                                onClick={toggleVideo}
+                                sx={{ bgcolor: isVideoEnabled ? '#424242' : undefined }}
+                            >
+                                {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon />}
+                            </Fab>
+                        )}
+                        <Fab
+                            size="large"
+                            color="error"
+                            onClick={hangup}
+                        >
+                            <CallEndIcon />
+                        </Fab>
+                    </Box>
+                </DialogContent>
+            </Dialog>
+
+            {/* INCOMING CALL DIALOG */}
             <Dialog
                 open={callStatus === CallStatus.RINGING}
                 onClose={declineCall}
                 maxWidth="xs"
                 fullWidth
+                PaperProps={{
+                    sx: {
+                        backgroundColor: '#1e1e1e',
+                        backgroundImage: 'none'
+                    }
+                }}
             >
                 <DialogContent sx={{ textAlign: 'center', py: 4 }}>
-                    <Avatar sx={{ width: 80, height: 80, margin: '0 auto 16px' }}>
+                    <Avatar sx={{ width: 80, height: 80, margin: '0 auto 16px', bgcolor: '#4CAF50' }}>
                         {interlocutorName[0]?.toUpperCase()}
                     </Avatar>
-                    <Typography variant="h6" gutterBottom>
+                    <Typography variant="h6" gutterBottom color="white">
                         {interlocutorName}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                    <Typography variant="body2" color="grey.400" gutterBottom>
                         {incomingCallVideo ? 'Видео звонок' : 'Аудио звонок'}
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mt: 3 }}>
-                        <Fab color="error" onClick={declineCall}>
+                    <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', mt: 3 }}>
+                        <Fab color="error" onClick={declineCall} size="large">
                             <CallEndIcon />
                         </Fab>
                         <Fab
                             color="success"
                             onClick={() => pendingOfferRef.current && answerCall(pendingOfferRef.current, incomingCallVideo)}
+                            size="large"
                         >
                             <PhoneIcon />
                         </Fab>
                     </Box>
                 </DialogContent>
             </Dialog>
+
+            {/* HIDDEN AUDIO ELEMENT FOR REMOTE AUDIO */}
             <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
-            {callStatus === CallStatus.IDLE && (
-                <section style={{ padding: '10px', display: 'flex', gap: '10px' }}>
-                    <TextField
-                        style={{ flexGrow: 1 }}
-                        color="secondary"
-                        multiline
-                        maxRows={4}
-                        placeholder="Написать..."
-                        inputRef={inputRef}
-                        disabled={interlocutorId === -1}
-                        onKeyPress={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                sendMessage();
-                            }
-                        }}
-                    />
-                    <IconButton
-                        onClick={sendMessage}
-                        disabled={interlocutorId === -1}
-                        color="secondary"
-                    >
-                        <SendIcon />
-                    </IconButton>
-                </section>
-            )}
-        </div>
+        </Box>
     );
-}
+}    
