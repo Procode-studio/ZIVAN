@@ -600,7 +600,7 @@ export default function MobileMessenger() {
             overflow: 'hidden',
             backgroundColor: '#212121'
         }}>
-            {/* HEADER */}
+            {/* HEADER - ВСЕГДА ВИДЕН */}
             {isLoaded && (
                 <Paper sx={{ 
                     p: 1.5, 
@@ -661,7 +661,7 @@ export default function MobileMessenger() {
                 </Paper>
             )}
 
-            {/* CONTENT */}
+            {/* CONTENT AREA */}
             {!isLoaded ? (
                 <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <CircularProgress color="secondary" />
@@ -671,8 +671,8 @@ export default function MobileMessenger() {
                     Выберите собеседника
                 </Box>
             ) : (
-                <>
-                    {/* MESSAGES AREA - ВСЕГДА ВИДЕН, НО РАЗНЫЙ РАЗМЕР В ЗАВИСИМОСТИ ОТ СТАТУСА ЗВОНКА */}
+                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    {/* MESSAGES AREA - ВСЕГДА ДОСТУПЕН ДЛЯ ПРОКРУТКИ */}
                     <Box 
                         ref={messagesBlockRef}
                         sx={{ 
@@ -681,10 +681,7 @@ export default function MobileMessenger() {
                             overflowX: 'hidden',
                             p: 2,
                             WebkitOverflowScrolling: 'touch',
-                            // Убираем условное отображение, но меняем размер в зависимости от статуса
-                            minHeight: callStatus === CallStatus.IDLE ? 'auto' : 0,
-                            maxHeight: callStatus === CallStatus.IDLE ? 'none' : 0,
-                            display: callStatus === CallStatus.IDLE ? 'block' : 'none',
+                            // Убираем все условия отображения - сообщения всегда видны
                             '&::-webkit-scrollbar': {
                                 width: '4px'
                             },
@@ -746,9 +743,7 @@ export default function MobileMessenger() {
                                 borderRadius: 0,
                                 flexShrink: 0,
                                 backgroundColor: '#1e1e1e',
-                                position: 'sticky',
-                                bottom: 0,
-                                zIndex: 5
+                                borderTop: '1px solid #333'
                             }}
                         >
                             <TextField
@@ -803,7 +798,7 @@ export default function MobileMessenger() {
                             </IconButton>
                         </Paper>
                     )}
-                </>
+                </Box>
             )}
 
             {/* CALL SCREEN - FULLSCREEN DIALOG */}
