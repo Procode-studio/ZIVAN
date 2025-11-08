@@ -668,124 +668,121 @@ export default function MobileMessenger() {
             ) : (
                 <>
                     {/* MESSAGES AREA */}
-                    {callStatus === CallStatus.IDLE && (
-                        <Box 
-                            ref={messagesBlockRef}
+                    <Box 
+                        ref={messagesBlockRef}
+                        sx={{ 
+                            flex: 1,
+                            overflowY: 'auto',
+                            overflowX: 'hidden',
+                            p: 2,
+                            WebkitOverflowScrolling: 'touch',
+                            display: callStatus === CallStatus.IDLE ? 'block' : 'none',
+                            '&::-webkit-scrollbar': {
+                                width: '4px'
+                            },
+                            '&::-webkit-scrollbar-thumb': {
+                                backgroundColor: '#888',
+                                borderRadius: '4px'
+                            }
+                        }}
+                    >
+                        {messages.length === 0 ? (
+                            <Typography sx={{ textAlign: 'center', color: '#999', mt: 4 }}>
+                                История пуста
+                            </Typography>
+                        ) : (
+                            messages.map((m, i) => (
+                                <Stack
+                                    key={i}
+                                    direction="row"
+                                    sx={{
+                                        mb: 1.5,
+                                        justifyContent: m.author === user_id ? 'flex-end' : 'flex-start',
+                                        alignItems: 'flex-end',
+                                        gap: 0.5
+                                    }}
+                                >
+                                    <Box
+                                        sx={{
+                                            maxWidth: '75%',
+                                            p: 1.5,
+                                            borderRadius: 2,
+                                            backgroundColor: m.author === user_id ? '#4CAF50' : '#424242',
+                                            color: '#fff',
+                                            wordWrap: 'break-word'
+                                        }}
+                                    >
+                                        <Typography variant="body2">
+                                            {m.text}
+                                        </Typography>
+                                    </Box>
+                                    {m.author === user_id && (
+                                        m.is_read ? 
+                                            <DoneAllIcon sx={{ fontSize: 14, color: '#4CAF50' }} /> : 
+                                            <CheckIcon sx={{ fontSize: 14, color: '#999' }} />
+                                    )}
+                                </Stack>
+                            ))
+                        )}
+                    </Box>
+
+                    {/* INPUT AREA - ALWAYS VISIBLE AT BOTTOM */}
+                    <Paper 
+                        elevation={4}
+                        sx={{ 
+                            p: 1.5,
+                            display: callStatus === CallStatus.IDLE ? 'flex' : 'none',
+                            gap: 1,
+                            alignItems: 'flex-end',
+                            borderRadius: 0,
+                            flexShrink: 0,
+                            backgroundColor: '#1e1e1e'
+                        }}
+                    >
+                        <TextField
+                            fullWidth
+                            color="secondary"
+                            multiline
+                            maxRows={3}
+                            placeholder="Написать..."
+                            inputRef={inputRef}
+                            disabled={interlocutorId === -1}
+                            variant="outlined"
+                            size="small"
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    sendMessage();
+                                }
+                            }}
+                            sx={{
+                                '& .MuiOutlinedInput-root': {
+                                    color: '#fff',
+                                    backgroundColor: '#2a2a2a',
+                                    '& fieldset': {
+                                        borderColor: '#444'
+                                    }
+                                }
+                            }}
+                        />
+                        <IconButton
+                            onClick={sendMessage}
+                            disabled={interlocutorId === -1}
+                            color="secondary"
                             sx={{ 
-                                flex: 1,
-                                overflowY: 'auto',
-                                overflowX: 'hidden',
-                                p: 2,
-                                WebkitOverflowScrolling: 'touch',
-                                '&::-webkit-scrollbar': {
-                                    width: '4px'
+                                backgroundColor: '#4CAF50',
+                                color: '#fff',
+                                '&:hover': {
+                                    backgroundColor: '#45a049'
                                 },
-                                '&::-webkit-scrollbar-thumb': {
-                                    backgroundColor: '#888',
-                                    borderRadius: '4px'
+                                '&:disabled': {
+                                    backgroundColor: '#333'
                                 }
                             }}
                         >
-                            {messages.length === 0 ? (
-                                <Typography sx={{ textAlign: 'center', color: '#999', mt: 4 }}>
-                                    История пуста
-                                </Typography>
-                            ) : (
-                                messages.map((m, i) => (
-                                    <Stack
-                                        key={i}
-                                        direction="row"
-                                        sx={{
-                                            mb: 1.5,
-                                            justifyContent: m.author === user_id ? 'flex-end' : 'flex-start',
-                                            alignItems: 'flex-end',
-                                            gap: 0.5
-                                        }}
-                                    >
-                                        <Box
-                                            sx={{
-                                                maxWidth: '75%',
-                                                p: 1.5,
-                                                borderRadius: 2,
-                                                backgroundColor: m.author === user_id ? '#4CAF50' : '#424242',
-                                                color: '#fff',
-                                                wordWrap: 'break-word'
-                                            }}
-                                        >
-                                            <Typography variant="body2">
-                                                {m.text}
-                                            </Typography>
-                                        </Box>
-                                        {m.author === user_id && (
-                                            m.is_read ? 
-                                                <DoneAllIcon sx={{ fontSize: 14, color: '#4CAF50' }} /> : 
-                                                <CheckIcon sx={{ fontSize: 14, color: '#999' }} />
-                                        )}
-                                    </Stack>
-                                ))
-                            )}
-                        </Box>
-                    )}
-
-                    {/* INPUT AREA - FIXED AT BOTTOM */}
-                    {callStatus === CallStatus.IDLE && (
-                        <Paper 
-                            elevation={4}
-                            sx={{ 
-                                p: 1.5,
-                                display: 'flex',
-                                gap: 1,
-                                alignItems: 'flex-end',
-                                borderRadius: 0,
-                                flexShrink: 0,
-                                backgroundColor: '#1e1e1e'
-                            }}
-                        >
-                            <TextField
-                                fullWidth
-                                color="secondary"
-                                multiline
-                                maxRows={3}
-                                placeholder="Написать..."
-                                inputRef={inputRef}
-                                disabled={interlocutorId === -1}
-                                variant="outlined"
-                                size="small"
-                                onKeyPress={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        sendMessage();
-                                    }
-                                }}
-                                sx={{
-                                    '& .MuiOutlinedInput-root': {
-                                        color: '#fff',
-                                        backgroundColor: '#2a2a2a',
-                                        '& fieldset': {
-                                            borderColor: '#444'
-                                        }
-                                    }
-                                }}
-                            />
-                            <IconButton
-                                onClick={sendMessage}
-                                disabled={interlocutorId === -1}
-                                color="secondary"
-                                sx={{ 
-                                    backgroundColor: '#4CAF50',
-                                    color: '#fff',
-                                    '&:hover': {
-                                        backgroundColor: '#45a049'
-                                    },
-                                    '&:disabled': {
-                                        backgroundColor: '#333'
-                                    }
-                                }}
-                            >
-                                <SendIcon />
-                            </IconButton>
-                        </Paper>
-                    )}
+                            <SendIcon />
+                        </IconButton>
+                    </Paper>
                 </>
             )}
 
@@ -963,8 +960,7 @@ export default function MobileMessenger() {
                 </DialogContent>
             </Dialog>
 
-            {/* HIDDEN AUDIO ELEMENT FOR REMOTE AUDIO */}
             <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
         </Box>
     );
-}    
+}
