@@ -559,6 +559,8 @@ export default function MobileMessenger() {
         };
     }, [user_id, interlocutorId, hangup]);
 
+    // ... остальной код ...
+
     const getStatusText = () => {
         if (callStatus === CallStatus.CALLING) return 'Вызов...';
         if (callStatus === CallStatus.RINGING) return 'Входящий вызов';
@@ -567,14 +569,16 @@ export default function MobileMessenger() {
             const secs = callDuration % 60;
             return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
-        if (interlocutorOnline) return 'В сети';
+        // Исправляем логику статуса - используем wsConnected и interlocutorOnline
+        if (wsConnected && interlocutorOnline) return 'В сети';
         return 'Не в сети';
     };
 
     const getStatusColor = () => {
         if (callStatus === CallStatus.CALLING || callStatus === CallStatus.RINGING) return 'warning';
         if (callStatus === CallStatus.CONNECTED) return 'error';
-        if (interlocutorOnline) return 'success';
+        // Исправляем логику статуса
+        if (wsConnected && interlocutorOnline) return 'success';
         return 'default';
     };
 
@@ -604,7 +608,8 @@ export default function MobileMessenger() {
                     justifyContent: 'space-between', 
                     alignItems: 'center',
                     borderRadius: 0,
-                    flexShrink: 0
+                    flexShrink: 0,
+                    zIndex: 10
                 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
                         <IconButton onClick={() => navigate('/friends')} size="small" sx={{ flexShrink: 0 }}>
@@ -667,7 +672,7 @@ export default function MobileMessenger() {
                 </Box>
             ) : (
                 <>
-                    {/* MESSAGES AREA */}
+                    {/* MESSAGES AREA - ВСЕГДА ВИДЕН, НО РАЗНЫЙ РАЗМЕР В ЗАВИСИМОСТИ ОТ СТАТУСА ЗВОНКА */}
                     <Box 
                         ref={messagesBlockRef}
                         sx={{ 
@@ -676,6 +681,9 @@ export default function MobileMessenger() {
                             overflowX: 'hidden',
                             p: 2,
                             WebkitOverflowScrolling: 'touch',
+                            // Убираем условное отображение, но меняем размер в зависимости от статуса
+                            minHeight: callStatus === CallStatus.IDLE ? 'auto' : 0,
+                            maxHeight: callStatus === CallStatus.IDLE ? 'none' : 0,
                             display: callStatus === CallStatus.IDLE ? 'block' : 'none',
                             '&::-webkit-scrollbar': {
                                 width: '4px'
@@ -726,63 +734,75 @@ export default function MobileMessenger() {
                         )}
                     </Box>
 
-                    {/* INPUT AREA - ALWAYS VISIBLE AT BOTTOM */}
-                    <Paper 
-                        elevation={4}
-                        sx={{ 
-                            p: 1.5,
-                            display: callStatus === CallStatus.IDLE ? 'flex' : 'none',
-                            gap: 1,
-                            alignItems: 'flex-end',
-                            borderRadius: 0,
-                            flexShrink: 0,
-                            backgroundColor: '#1e1e1e'
-                        }}
-                    >
-                        <TextField
-                            fullWidth
-                            color="secondary"
-                            multiline
-                            maxRows={3}
-                            placeholder="Написать..."
-                            inputRef={inputRef}
-                            disabled={interlocutorId === -1}
-                            variant="outlined"
-                            size="small"
-                            onKeyPress={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    sendMessage();
-                                }
-                            }}
+                    {/* INPUT AREA - ЗАКРЕПЛЕН ВНИЗУ, ТОЛЬКО КОГДА НЕТ ЗВОНКА */}
+                    {callStatus === CallStatus.IDLE && (
+                        <Paper 
+                            elevation={4}
                             sx={{
-                                '& .MuiOutlinedInput-root': {
-                                    color: '#fff',
-                                    backgroundColor: '#2a2a2a',
-                                    '& fieldset': {
-                                        borderColor: '#444'
-                                    }
-                                }
-                            }}
-                        />
-                        <IconButton
-                            onClick={sendMessage}
-                            disabled={interlocutorId === -1}
-                            color="secondary"
-                            sx={{ 
-                                backgroundColor: '#4CAF50',
-                                color: '#fff',
-                                '&:hover': {
-                                    backgroundColor: '#45a049'
-                                },
-                                '&:disabled': {
-                                    backgroundColor: '#333'
-                                }
+                                p: 1.5,
+                                display: 'flex',
+                                gap: 1,
+                                alignItems: 'flex-end',
+                                borderRadius: 0,
+                                flexShrink: 0,
+                                backgroundColor: '#1e1e1e',
+                                position: 'sticky',
+                                bottom: 0,
+                                zIndex: 5
                             }}
                         >
-                            <SendIcon />
-                        </IconButton>
-                    </Paper>
+                            <TextField
+                                fullWidth
+                                color="secondary"
+                                multiline
+                                maxRows={3}
+                                placeholder="Написать..."
+                                inputRef={inputRef}
+                                disabled={interlocutorId === -1}
+                                variant="outlined"
+                                size="small"
+                                onKeyPress={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        sendMessage();
+                                    }
+                                }}
+                                sx={{
+                                    '& .MuiOutlinedInput-root': {
+                                        color: '#fff',
+                                        backgroundColor: '#2a2a2a',
+                                        '& fieldset': {
+                                            borderColor: '#444'
+                                        },
+                                        '&:hover fieldset': {
+                                            borderColor: '#666'
+                                        },
+                                        '&.Mui-focused fieldset': {
+                                            borderColor: '#4CAF50'
+                                        }
+                                    }
+                                }}
+                            />
+                            <IconButton
+                                onClick={sendMessage}
+                                disabled={interlocutorId === -1}
+                                color="secondary"
+                                sx={{ 
+                                    backgroundColor: '#4CAF50',
+                                    color: '#fff',
+                                    '&:hover': {
+                                        backgroundColor: '#45a049'
+                                    },
+                                    '&:disabled': {
+                                        backgroundColor: '#333'
+                                    },
+                                    flexShrink: 0
+                                }}
+                            >
+                                <SendIcon />
+                            </IconButton>
+                        </Paper>
+                    )}
                 </>
             )}
 
@@ -791,12 +811,12 @@ export default function MobileMessenger() {
                 open={callStatus === CallStatus.CALLING || callStatus === CallStatus.CONNECTED}
                 onClose={hangup}
                 fullScreen
-                PaperProps={{ 
-                    sx: { 
+                PaperProps={{
+                    sx: {
                         backgroundColor: '#000',
                         margin: 0,
                         borderRadius: 0
-                    } 
+                    }
                 }}
             >
                 <DialogContent sx={{ 
