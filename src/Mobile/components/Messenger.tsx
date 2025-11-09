@@ -12,7 +12,7 @@ import {
     Paper,
     Stack
 } from "@mui/material";
-import { useState, useRef, useContext, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useContext, useEffect, useCallback } from "react";
 import { MessageType } from 'my-types/Message';
 import SendIcon from '@mui/icons-material/Send';
 import PhoneIcon from '@mui/icons-material/Phone';
@@ -56,7 +56,7 @@ export default function MobileMessenger() {
     const [wsConnected, setWsConnected] = useState(false);
     const [interlocutorName, setInterlocutorName] = useState('');
     const [interlocutorOnline, setInterlocutorOnline] = useState(false);
-    const lastPingTimeRef = useRef<number>(0);
+    const lastActivityTimeRef = useRef<number>(0);
     const [callStatus, setCallStatus] = useState<CallStatus>(CallStatus.IDLE);
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isAudioEnabled, setIsAudioEnabled] = useState(true);
@@ -74,7 +74,9 @@ export default function MobileMessenger() {
     const hangupProcessingRef = useRef(false);
     const [callDuration, setCallDuration] = useState(0);
     const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const activityCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+    // Load TURN servers
     useEffect(() => {
         const loadTurnServers = async () => {
             try {
@@ -89,6 +91,7 @@ export default function MobileMessenger() {
         loadTurnServers();
     }, []);
 
+    // Call timer
     useEffect(() => {
         if (callStatus === CallStatus.CONNECTED) {
             setCallDuration(0);
@@ -109,6 +112,7 @@ export default function MobileMessenger() {
         };
     }, [callStatus]);
 
+    // Load interlocutor name
     useEffect(() => {
         if (interlocutorId === -1) {
             setInterlocutorName('');
@@ -132,6 +136,7 @@ export default function MobileMessenger() {
         return () => controller.abort();
     }, [interlocutorId]);
 
+    // Load messages
     useEffect(() => {
         if (interlocutorId === -1) {
             setMessages([]);
@@ -183,8 +188,10 @@ export default function MobileMessenger() {
                 iceTransportPolicy: 'all'
             };
             const pc = new RTCPeerConnection(config);
+            
             pc.onicecandidate = (e) => {
                 if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
+                    console.log('[RTC] Sending ICE candidate');
                     wsRef.current.send(JSON.stringify({
                         type: 'ice-candidate',
                         candidate: e.candidate.toJSON(),
@@ -192,34 +199,42 @@ export default function MobileMessenger() {
                     }));
                 }
             };
+            
             pc.ontrack = (e) => {
+                console.log('[RTC] Received remote track:', e.track.kind);
                 if (e.streams && e.streams[0]) {
                     const stream = e.streams[0];
                     setRemoteStream(stream);
                     if (remoteVideoRef.current) {
                         remoteVideoRef.current.srcObject = stream;
-                        remoteVideoRef.current.play().catch(() => {});
+                        remoteVideoRef.current.play().catch(err => console.error('[RTC] Video play error:', err));
                     }
                     if (remoteAudioRef.current) {
                         remoteAudioRef.current.srcObject = stream;
                         remoteAudioRef.current.muted = false;
-                        remoteAudioRef.current.play().catch(() => {});
+                        remoteAudioRef.current.play().catch(err => console.error('[RTC] Audio play error:', err));
                     }
                 }
             };
+            
             pc.onconnectionstatechange = () => {
+                console.log('[RTC] Connection state:', pc.connectionState);
                 if (pc.connectionState === 'connected') {
                     setCallStatus(CallStatus.CONNECTED);
-                } else if (pc.connectionState === 'failed') {
+                } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
                     alert('Не удалось установить соединение');
                     hangup();
                 }
             };
+            
             pc.oniceconnectionstatechange = () => {
+                console.log('[RTC] ICE connection state:', pc.iceConnectionState);
                 if (pc.iceConnectionState === 'failed') {
+                    console.log('[RTC] ICE failed, restarting');
                     pc.restartIce();
                 }
             };
+            
             peerConnectionRef.current = pc;
             remoteDescriptionSetRef.current = false;
             return pc;
@@ -232,6 +247,9 @@ export default function MobileMessenger() {
     const hangup = useCallback(() => {
         if (hangupProcessingRef.current) return;
         hangupProcessingRef.current = true;
+        
+        console.log('[Call] Hanging up');
+        
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
@@ -249,12 +267,15 @@ export default function MobileMessenger() {
         setIsAudioEnabled(true);
         remoteDescriptionSetRef.current = false;
         pendingRemoteCandidatesRef.current = [];
+        pendingOfferRef.current = null;
+        
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({
                 type: 'hangup',
                 author: user_id
             }));
         }
+        
         setTimeout(() => {
             hangupProcessingRef.current = false;
         }, 1000);
@@ -263,7 +284,9 @@ export default function MobileMessenger() {
     const startCall = useCallback(async (withVideo: boolean) => {
         if (interlocutorId === -1) return;
         try {
+            console.log('[Call] Starting call, video:', withVideo);
             setCallStatus(CallStatus.CALLING);
+            
             const constraints = withVideo 
                 ? {
                     audio: { 
@@ -285,30 +308,39 @@ export default function MobileMessenger() {
                     }, 
                     video: false 
                 };
+                
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
             setLocalStream(stream);
             setIsVideoEnabled(withVideo);
             setIsAudioEnabled(true);
+            
             if (localVideoRef.current && withVideo) {
                 localVideoRef.current.srcObject = stream;
             }
+            
             const pc = createPeerConnection();
             stream.getTracks().forEach(track => {
+                console.log('[RTC] Adding local track:', track.kind);
                 pc.addTrack(track, stream);
             });
+            
             const offer = await pc.createOffer({
                 offerToReceiveAudio: true,
                 offerToReceiveVideo: true
             });
             await pc.setLocalDescription(offer);
+            
             let attempts = 0;
             while ((!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) && attempts < 50) {
                 await new Promise(resolve => setTimeout(resolve, 100));
                 attempts++;
             }
+            
             if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
                 throw new Error('WebSocket not ready');
             }
+            
+            console.log('[Call] Sending offer');
             wsRef.current.send(JSON.stringify({
                 type: 'offer',
                 offer: pc.localDescription!.toJSON(),
@@ -316,6 +348,7 @@ export default function MobileMessenger() {
                 video: withVideo
             }));
         } catch (err) {
+            console.error('[Call] Start call error:', err);
             setCallStatus(CallStatus.FAILED);
             if (localStream) {
                 localStream.getTracks().forEach(t => t.stop());
@@ -329,7 +362,9 @@ export default function MobileMessenger() {
     const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
         try {
+            console.log('[Call] Answering call, video:', withVideo);
             setCallStatus(CallStatus.CONNECTED);
+            
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
                 video: withVideo
@@ -337,31 +372,44 @@ export default function MobileMessenger() {
             setLocalStream(stream);
             setIsVideoEnabled(withVideo);
             setIsAudioEnabled(true);
+            
             if (localVideoRef.current && withVideo) {
                 localVideoRef.current.srcObject = stream;
             }
+            
             const pc = createPeerConnection();
             stream.getTracks().forEach(track => {
+                console.log('[RTC] Adding local track:', track.kind);
                 pc.addTrack(track, stream);
             });
+            
+            console.log('[Call] Setting remote description (offer)');
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
             remoteDescriptionSetRef.current = true;
+            
             if (pendingRemoteCandidatesRef.current.length > 0) {
+                console.log('[Call] Adding', pendingRemoteCandidatesRef.current.length, 'pending candidates');
                 for (const c of pendingRemoteCandidatesRef.current) {
                     try {
                         await pc.addIceCandidate(new RTCIceCandidate(c));
-                    } catch (e) {}
+                    } catch (e) {
+                        console.error('[RTC] Failed to add pending candidate:', e);
+                    }
                 }
                 pendingRemoteCandidatesRef.current = [];
             }
+            
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+            
+            console.log('[Call] Sending answer');
             wsRef.current.send(JSON.stringify({
                 type: 'answer',
                 answer: pc.localDescription!.toJSON(),
                 author: user_id
             }));
         } catch (err) {
+            console.error('[Call] Answer call error:', err);
             setCallStatus(CallStatus.FAILED);
             alert('Не удалось ответить на звонок');
             setTimeout(() => setCallStatus(CallStatus.IDLE), 2000);
@@ -387,6 +435,7 @@ export default function MobileMessenger() {
     }, [localStream]);
 
     const declineCall = useCallback(() => {
+        console.log('[Call] Declining call');
         pendingOfferRef.current = null;
         setCallStatus(CallStatus.IDLE);
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -401,8 +450,10 @@ export default function MobileMessenger() {
         if (!inputRef.current || interlocutorId === -1 || !wsRef.current) return;
         const text = inputRef.current.value.trim();
         if (!text) return;
+        
         const id1 = Math.min(user_id, interlocutorId);
         const id2 = Math.max(user_id, interlocutorId);
+        
         if (wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({
                 type: 'message',
@@ -415,6 +466,7 @@ export default function MobileMessenger() {
         }
     }, [interlocutorId, user_id]);
 
+    // WebSocket connection
     useEffect(() => {
         if (interlocutorId === -1 || !user_id || user_id === -1) {
             if (wsRef.current) {
@@ -425,9 +477,11 @@ export default function MobileMessenger() {
             setInterlocutorOnline(false);
             return;
         }
+        
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             return;
         }
+        
         const id1 = Math.min(user_id, interlocutorId);
         const id2 = Math.max(user_id, interlocutorId);
         const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}`;
@@ -437,24 +491,32 @@ export default function MobileMessenger() {
         
         const connect = () => {
             try {
+                console.log('[WS] Connecting to:', wsUrl);
                 const ws = new WebSocket(wsUrl);
+                
                 ws.onopen = () => {
+                    console.log('[WS] Connected');
                     wsRef.current = ws;
                     setWsConnected(true);
-                    lastPingTimeRef.current = Date.now();
+                    lastActivityTimeRef.current = Date.now();
                     
-                    // Отправляем ping каждые 5 секунд
+                    // Ping every 5 seconds
                     pingInterval = setInterval(() => {
                         if (ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({ type: 'ping', author: user_id }));
                         }
                     }, 5000);
                     
-                    // Проверяем активность каждые 10 секунд
-                    const checkActivity = setInterval(() => {
-                        const timeSinceLastPing = Date.now() - lastPingTimeRef.current;
-                        setInterlocutorOnline(timeSinceLastPing < 15000); // 15 сек таймаут
-                    }, 10000);
+                    // Check activity every 3 seconds
+                    if (activityCheckIntervalRef.current) {
+                        clearInterval(activityCheckIntervalRef.current);
+                    }
+                    activityCheckIntervalRef.current = setInterval(() => {
+                        const timeSinceLastActivity = Date.now() - lastActivityTimeRef.current;
+                        const isOnline = timeSinceLastActivity < 15000; // 15 sec timeout
+                        setInterlocutorOnline(isOnline);
+                        console.log('[Activity] Time since last:', timeSinceLastActivity, 'ms, Online:', isOnline);
+                    }, 3000);
                 };
 
                 ws.onmessage = (event) => {
@@ -462,17 +524,20 @@ export default function MobileMessenger() {
                         const data = JSON.parse(event.data);
                         const type = data.type || 'message';
                         
-                        // Обновляем время последней активности при любом сообщении от собеседника
+                        console.log('[WS] Received:', type, 'from:', data.author);
+                        
+                        // Update activity time for any message from interlocutor
                         if (data.author !== user_id) {
-                            lastPingTimeRef.current = Date.now();
+                            lastActivityTimeRef.current = Date.now();
                             setInterlocutorOnline(true);
                         }
                         
                         if (type === 'pong' && data.author !== user_id) {
-                            lastPingTimeRef.current = Date.now();
+                            // Pong from interlocutor
+                            lastActivityTimeRef.current = Date.now();
                             setInterlocutorOnline(true);
                         } else if (type === 'ping' && data.author !== user_id) {
-                            // Отвечаем на ping
+                            // Respond to ping
                             if (ws.readyState === WebSocket.OPEN) {
                                 ws.send(JSON.stringify({ type: 'pong', author: user_id }));
                             }
@@ -485,62 +550,81 @@ export default function MobileMessenger() {
                                 is_read: data.author === user_id,
                                 created_at: new Date().toISOString()
                             }]);
+                            setTimeout(() => {
+                                messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current?.scrollHeight || 0);
+                            }, 10);
                         } else if (type === 'offer' && data.author !== user_id) {
+                            console.log('[Call] Received offer');
                             pendingOfferRef.current = data.offer;
                             setIncomingCallVideo(data.video || false);
                             setCallStatus(CallStatus.RINGING);
                         } else if (type === 'answer' && data.author !== user_id) {
+                            console.log('[Call] Received answer');
                             if (peerConnectionRef.current && data.answer) {
                                 peerConnectionRef.current.setRemoteDescription(
                                     new RTCSessionDescription(data.answer)
                                 ).then(() => {
+                                    console.log('[RTC] Remote description set (answer)');
                                     remoteDescriptionSetRef.current = true;
                                     if (pendingRemoteCandidatesRef.current.length > 0) {
+                                        console.log('[RTC] Adding', pendingRemoteCandidatesRef.current.length, 'pending candidates');
                                         pendingRemoteCandidatesRef.current.forEach(async (c) => {
                                             try {
                                                 await peerConnectionRef.current!.addIceCandidate(new RTCIceCandidate(c));
-                                            } catch (e) {}
+                                            } catch (e) {
+                                                console.error('[RTC] Failed to add pending candidate:', e);
+                                            }
                                         });
                                         pendingRemoteCandidatesRef.current = [];
                                     }
-                                }).catch(() => {});
+                                }).catch(err => console.error('[RTC] Failed to set remote description:', err));
                             }
                         } else if (type === 'ice-candidate' && data.author !== user_id) {
+                            console.log('[Call] Received ICE candidate');
                             if (peerConnectionRef.current && data.candidate) {
                                 if (remoteDescriptionSetRef.current) {
                                     peerConnectionRef.current.addIceCandidate(
                                         new RTCIceCandidate(data.candidate)
-                                    ).catch(() => {});
+                                    ).catch(err => console.error('[RTC] Failed to add ICE candidate:', err));
                                 } else {
+                                    console.log('[RTC] Queueing ICE candidate (remote description not set yet)');
                                     pendingRemoteCandidatesRef.current.push(data.candidate);
                                 }
                             }
                         } else if (type === 'hangup' && data.author !== user_id) {
+                            console.log('[Call] Received hangup');
                             hangup();
                         }
-                        setTimeout(() => {
-                            messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current?.scrollHeight || 0);
-                        }, 10);
-                    } catch (e) {}
+                    } catch (e) {
+                        console.error('[WS] Message parsing error:', e);
+                    }
                 };
 
-                ws.onerror = () => {
+                ws.onerror = (err) => {
+                    console.error('[WS] Error:', err);
                     setWsConnected(false);
                     setInterlocutorOnline(false);
                 };
 
                 ws.onclose = () => {
+                    console.log('[WS] Connection closed');
                     if (wsRef.current === ws) {
                         wsRef.current = null;
                     }
                     setWsConnected(false);
                     setInterlocutorOnline(false);
                     clearInterval(pingInterval);
+                    if (activityCheckIntervalRef.current) {
+                        clearInterval(activityCheckIntervalRef.current);
+                        activityCheckIntervalRef.current = null;
+                    }
                     if (!isIntentionallyClosed) {
+                        console.log('[WS] Reconnecting in 3s...');
                         reconnectTimeout = setTimeout(connect, 3000);
                     }
                 };
             } catch (err) {
+                console.error('[WS] Connection error:', err);
                 setWsConnected(false);
                 setInterlocutorOnline(false);
             }
@@ -552,14 +636,16 @@ export default function MobileMessenger() {
             isIntentionallyClosed = true;
             clearTimeout(reconnectTimeout);
             clearInterval(pingInterval);
+            if (activityCheckIntervalRef.current) {
+                clearInterval(activityCheckIntervalRef.current);
+                activityCheckIntervalRef.current = null;
+            }
             if (wsRef.current) {
                 wsRef.current.close();
                 wsRef.current = null;
             }
         };
     }, [user_id, interlocutorId, hangup]);
-
-    // ... остальной код ...
 
     const getStatusText = () => {
         if (callStatus === CallStatus.CALLING) return 'Вызов...';
@@ -569,16 +655,14 @@ export default function MobileMessenger() {
             const secs = callDuration % 60;
             return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
-        // Исправляем логику статуса - используем wsConnected и interlocutorOnline
-        if (wsConnected && interlocutorOnline) return 'В сети';
+        if (interlocutorOnline) return 'В сети';
         return 'Не в сети';
     };
 
     const getStatusColor = () => {
         if (callStatus === CallStatus.CALLING || callStatus === CallStatus.RINGING) return 'warning';
         if (callStatus === CallStatus.CONNECTED) return 'error';
-        // Исправляем логику статуса
-        if (wsConnected && interlocutorOnline) return 'success';
+        if (interlocutorOnline) return 'success';
         return 'default';
     };
 
@@ -600,7 +684,7 @@ export default function MobileMessenger() {
             overflow: 'hidden',
             backgroundColor: '#212121'
         }}>
-            {/* HEADER - ВСЕГДА ВИДЕН */}
+            {/* HEADER */}
             {isLoaded && (
                 <Paper sx={{ 
                     p: 1.5, 
@@ -672,7 +756,7 @@ export default function MobileMessenger() {
                 </Box>
             ) : (
                 <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    {/* MESSAGES AREA - ВСЕГДА ДОСТУПЕН ДЛЯ ПРОКРУТКИ */}
+                    {/* MESSAGES AREA */}
                     <Box 
                         ref={messagesBlockRef}
                         sx={{ 
@@ -681,7 +765,6 @@ export default function MobileMessenger() {
                             overflowX: 'hidden',
                             p: 2,
                             WebkitOverflowScrolling: 'touch',
-                            // Убираем все условия отображения - сообщения всегда видны
                             '&::-webkit-scrollbar': {
                                 width: '4px'
                             },
@@ -731,73 +814,71 @@ export default function MobileMessenger() {
                         )}
                     </Box>
 
-                    {/* INPUT AREA - ЗАКРЕПЛЕН ВНИЗУ, ТОЛЬКО КОГДА НЕТ ЗВОНКА */}
-                    {callStatus === CallStatus.IDLE && (
-                        <Paper 
-                            elevation={4}
+                    {/* INPUT AREA - ВСЕГДА ВИДНА */}
+                    <Paper 
+                        elevation={4}
+                        sx={{
+                            p: 1.5,
+                            display: 'flex',
+                            gap: 1,
+                            alignItems: 'flex-end',
+                            borderRadius: 0,
+                            flexShrink: 0,
+                            backgroundColor: '#1e1e1e',
+                            borderTop: '1px solid #333'
+                        }}
+                    >
+                        <TextField
+                            fullWidth
+                            color="secondary"
+                            multiline
+                            maxRows={3}
+                            placeholder="Написать..."
+                            inputRef={inputRef}
+                            disabled={interlocutorId === -1}
+                            variant="outlined"
+                            size="small"
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    sendMessage();
+                                }
+                            }}
                             sx={{
-                                p: 1.5,
-                                display: 'flex',
-                                gap: 1,
-                                alignItems: 'flex-end',
-                                borderRadius: 0,
-                                flexShrink: 0,
-                                backgroundColor: '#1e1e1e',
-                                borderTop: '1px solid #333'
+                                '& .MuiOutlinedInput-root': {
+                                    color: '#fff',
+                                    backgroundColor: '#2a2a2a',
+                                    '& fieldset': {
+                                        borderColor: '#444'
+                                    },
+                                    '&:hover fieldset': {
+                                        borderColor: '#666'
+                                    },
+                                    '&.Mui-focused fieldset': {
+                                        borderColor: '#4CAF50'
+                                    }
+                                }
+                            }}
+                        />
+                        <IconButton
+                            onClick={sendMessage}
+                            disabled={interlocutorId === -1}
+                            color="secondary"
+                            sx={{ 
+                                backgroundColor: '#4CAF50',
+                                color: '#fff',
+                                '&:hover': {
+                                    backgroundColor: '#45a049'
+                                },
+                                '&:disabled': {
+                                    backgroundColor: '#333'
+                                },
+                                flexShrink: 0
                             }}
                         >
-                            <TextField
-                                fullWidth
-                                color="secondary"
-                                multiline
-                                maxRows={3}
-                                placeholder="Написать..."
-                                inputRef={inputRef}
-                                disabled={interlocutorId === -1}
-                                variant="outlined"
-                                size="small"
-                                onKeyPress={(e) => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        sendMessage();
-                                    }
-                                }}
-                                sx={{
-                                    '& .MuiOutlinedInput-root': {
-                                        color: '#fff',
-                                        backgroundColor: '#2a2a2a',
-                                        '& fieldset': {
-                                            borderColor: '#444'
-                                        },
-                                        '&:hover fieldset': {
-                                            borderColor: '#666'
-                                        },
-                                        '&.Mui-focused fieldset': {
-                                            borderColor: '#4CAF50'
-                                        }
-                                    }
-                                }}
-                            />
-                            <IconButton
-                                onClick={sendMessage}
-                                disabled={interlocutorId === -1}
-                                color="secondary"
-                                sx={{ 
-                                    backgroundColor: '#4CAF50',
-                                    color: '#fff',
-                                    '&:hover': {
-                                        backgroundColor: '#45a049'
-                                    },
-                                    '&:disabled': {
-                                        backgroundColor: '#333'
-                                    },
-                                    flexShrink: 0
-                                }}
-                            >
-                                <SendIcon />
-                            </IconButton>
-                        </Paper>
-                    )}
+                            <SendIcon />
+                        </IconButton>
+                    </Paper>
                 </Box>
             )}
 
