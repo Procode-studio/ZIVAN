@@ -50,6 +50,8 @@ export default function Messenger() {
     const [wsConnected, setWsConnected] = useState(false);
     const [interlocutorName, setInterlocutorName] = useState('');
     const [interlocutorOnline, setInterlocutorOnline] = useState(false);
+    const lastActivityTimeRef = useRef<number>(0);
+    const activityCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const [callStatus, setCallStatus] = useState<CallStatus>('idle');
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
@@ -78,6 +80,7 @@ export default function Messenger() {
                 const validated = validateIceServers(servers);
                 setIceServers(validated);
             } catch (err) {
+                console.error('[Setup] Failed to load TURN servers:', err);
                 setIceServers([{ urls: 'stun:stun.l.google.com:19302' }]);
             }
         };
@@ -121,6 +124,7 @@ export default function Messenger() {
             })
             .catch(err => {
                 if (!axios.isCancel(err)) {
+                    console.error('[Profile] Failed to load:', err);
                     setInterlocutorName(`User #${interlocutorId}`);
                 }
             });
@@ -160,7 +164,7 @@ export default function Messenger() {
             })
             .catch(err => {
                 if (!axios.isCancel(err)) {
-                    console.error('Failed to load messages');
+                    console.error('[Messages] Failed to load:', err);
                 }
                 setIsLoaded(true);
             });
@@ -170,9 +174,11 @@ export default function Messenger() {
 
     const createPeerConnection = useCallback(() => {
         try {
+            console.log('[RTC] Creating PeerConnection with ICE servers:', iceServers);
             const config: RTCConfiguration = {
                 iceServers: iceServers?.length ? iceServers : [
-                    { urls: 'stun:stun.l.google.com:19302' }
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
                 ],
                 iceCandidatePoolSize: 10,
                 bundlePolicy: 'max-bundle',
@@ -184,6 +190,7 @@ export default function Messenger() {
 
             pc.onicecandidate = (e) => {
                 if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
+                    console.log('[RTC] Sending ICE candidate');
                     wsRef.current.send(JSON.stringify({
                         type: 'ice-candidate',
                         candidate: e.candidate.toJSON(),
@@ -193,6 +200,7 @@ export default function Messenger() {
             };
 
             pc.ontrack = (e) => {
+                console.log('[RTC] Received remote track:', e.track.kind);
                 if (e.streams && e.streams[0]) {
                     const stream = e.streams[0];
                     setRemoteStream(stream);
@@ -200,27 +208,31 @@ export default function Messenger() {
                     setTimeout(() => {
                         if (remoteVideoRef.current) {
                             remoteVideoRef.current.srcObject = stream;
-                            remoteVideoRef.current.play().catch(() => {});
+                            remoteVideoRef.current.play().catch(err => console.error('[RTC] Video play error:', err));
                         }
                         if (remoteAudioRef.current) {
                             remoteAudioRef.current.srcObject = stream;
                             remoteAudioRef.current.muted = false;
-                            remoteAudioRef.current.play().catch(() => {});
+                            remoteAudioRef.current.play().catch(err => console.error('[RTC] Audio play error:', err));
                         }
                     }, 100);
                 }
             };
 
             pc.onconnectionstatechange = () => {
+                console.log('[RTC] Connection state:', pc.connectionState);
                 if (pc.connectionState === 'connected') {
                     setCallStatus('connected');
-                } else if (pc.connectionState === 'failed') {
+                } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                    alert('Не удалось установить соединение');
                     hangup();
                 }
             };
 
             pc.oniceconnectionstatechange = () => {
+                console.log('[RTC] ICE connection state:', pc.iceConnectionState);
                 if (pc.iceConnectionState === 'failed') {
+                    console.log('[RTC] ICE failed, restarting');
                     pc.restartIce();
                 }
             };
@@ -229,12 +241,16 @@ export default function Messenger() {
             remoteDescriptionSetRef.current = false;
             return pc;
         } catch (err) {
+            console.error('[RTC] Failed to create PeerConnection:', err);
             throw err;
         }
     }, [iceServers, user_id]);
+
     const hangup = useCallback(() => {
         if (hangupProcessingRef.current) return;
         hangupProcessingRef.current = true;
+
+        console.log('[Call] Hanging up');
 
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
@@ -256,6 +272,7 @@ export default function Messenger() {
         setIsAudioEnabled(true);
         remoteDescriptionSetRef.current = false;
         pendingRemoteCandidatesRef.current = [];
+        pendingOfferRef.current = null;
 
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({
@@ -273,14 +290,30 @@ export default function Messenger() {
         if (interlocutorId === -1) return;
 
         try {
+            console.log('[Call] Starting call, video:', withVideo);
             setCallStatus('calling');
 
             const constraints = withVideo 
                 ? {
-                    audio: { echoCancellation: true, noiseSuppression: true },
-                    video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+                    audio: { 
+                        echoCancellation: true, 
+                        noiseSuppression: true,
+                        autoGainControl: true 
+                    },
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        frameRate: { ideal: 30 },
+                        facingMode: 'user'
+                    }
                   }
-                : { audio: true, video: false };
+                : { 
+                    audio: { 
+                        echoCancellation: true, 
+                        noiseSuppression: true 
+                    }, 
+                    video: false 
+                };
 
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
@@ -295,6 +328,7 @@ export default function Messenger() {
             const pc = createPeerConnection();
             
             stream.getTracks().forEach(track => {
+                console.log('[RTC] Adding local track:', track.kind);
                 pc.addTrack(track, stream);
             });
 
@@ -315,6 +349,7 @@ export default function Messenger() {
                 throw new Error('WebSocket not ready');
             }
 
+            console.log('[Call] Sending offer');
             wsRef.current.send(JSON.stringify({
                 type: 'offer',
                 offer: pc.localDescription!.toJSON(),
@@ -322,6 +357,7 @@ export default function Messenger() {
                 video: withVideo
             }));
         } catch (err) {
+            console.error('[Call] Start call error:', err);
             setCallStatus('failed');
             
             if (localStream) {
@@ -329,6 +365,7 @@ export default function Messenger() {
                 setLocalStream(null);
             }
             
+            alert(`Не удалось начать звонок: ${err instanceof Error ? err.message : 'Проверьте разрешения'}`);
             setTimeout(() => setCallStatus('idle'), 2000);
         }
     }, [interlocutorId, user_id, createPeerConnection, localStream]);
@@ -337,6 +374,7 @@ export default function Messenger() {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
         try {
+            console.log('[Call] Answering call, video:', withVideo);
             setCallStatus('connected');
 
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -355,17 +393,22 @@ export default function Messenger() {
             const pc = createPeerConnection();
 
             stream.getTracks().forEach(track => {
+                console.log('[RTC] Adding local track:', track.kind);
                 pc.addTrack(track, stream);
             });
 
+            console.log('[Call] Setting remote description (offer)');
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
             remoteDescriptionSetRef.current = true;
 
             if (pendingRemoteCandidatesRef.current.length > 0) {
+                console.log('[Call] Adding', pendingRemoteCandidatesRef.current.length, 'pending candidates');
                 for (const c of pendingRemoteCandidatesRef.current) {
                     try {
                         await pc.addIceCandidate(new RTCIceCandidate(c));
-                    } catch (e) {}
+                    } catch (e) {
+                        console.error('[RTC] Failed to add pending candidate:', e);
+                    }
                 }
                 pendingRemoteCandidatesRef.current = [];
             }
@@ -373,13 +416,16 @@ export default function Messenger() {
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
 
+            console.log('[Call] Sending answer');
             wsRef.current.send(JSON.stringify({
                 type: 'answer',
                 answer: pc.localDescription!.toJSON(),
                 author: user_id
             }));
         } catch (err) {
+            console.error('[Call] Answer call error:', err);
             setCallStatus('failed');
+            alert('Не удалось ответить на звонок');
             setTimeout(() => setCallStatus('idle'), 2000);
         }
     }, [user_id, createPeerConnection]);
@@ -403,6 +449,7 @@ export default function Messenger() {
     }, [localStream]);
 
     const declineCall = useCallback(() => {
+        console.log('[Call] Declining call');
         pendingOfferRef.current = null;
         setCallStatus('idle');
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -440,6 +487,7 @@ export default function Messenger() {
                 wsRef.current = null;
             }
             setWsConnected(false);
+            setInterlocutorOnline(false);
             return;
         }
 
@@ -453,15 +501,38 @@ export default function Messenger() {
         
         let reconnectTimeout: ReturnType<typeof setTimeout>;
         let isIntentionallyClosed = false;
+        let pingInterval: ReturnType<typeof setInterval>;
 
         const connect = () => {
             try {
+                console.log('[WS] Connecting to:', wsUrl);
                 const ws = new WebSocket(wsUrl);
 
                 ws.onopen = () => {
+                    console.log('[WS] Connected');
                     wsRef.current = ws;
                     setWsConnected(true);
-                    setInterlocutorOnline(true);
+                    lastActivityTimeRef.current = Date.now();
+
+                    // Ping каждые 5 секунд
+                    pingInterval = setInterval(() => {
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'ping', author: user_id }));
+                        }
+                    }, 5000);
+
+                    // Проверка активности каждые 3 секунды
+                    if (activityCheckIntervalRef.current) {
+                        clearInterval(activityCheckIntervalRef.current);
+                    }
+                    activityCheckIntervalRef.current = setInterval(() => {
+                        const timeSinceLastActivity = Date.now() - lastActivityTimeRef.current;
+                        const isOnline = timeSinceLastActivity < 15000; // 15 сек таймаут
+                        setInterlocutorOnline(isOnline);
+                    }, 3000);
+
+                    // Отправляем уведомление о прочтении
+                    ws.send(JSON.stringify({ type: 'read', author: user_id }));
                 };
 
                 ws.onmessage = (event) => {
@@ -469,7 +540,23 @@ export default function Messenger() {
                         const data = JSON.parse(event.data);
                         const type = data.type || 'message';
 
-                        if (type === 'message') {
+                        console.log('[WS] Received:', type, 'from:', data.author);
+
+                        // Обновляем время активности при любом сообщении от собеседника
+                        if (data.author !== user_id) {
+                            lastActivityTimeRef.current = Date.now();
+                            setInterlocutorOnline(true);
+                        }
+
+                        if (type === 'pong' && data.author !== user_id) {
+                            lastActivityTimeRef.current = Date.now();
+                            setInterlocutorOnline(true);
+                        } else if (type === 'ping' && data.author !== user_id) {
+                            // Отвечаем на ping
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'pong', author: user_id }));
+                            }
+                        } else if (type === 'message') {
                             setMessages(prev => [...prev, {
                                 id: Date.now(),
                                 text: data.text,
@@ -478,64 +565,94 @@ export default function Messenger() {
                                 is_read: data.author === user_id,
                                 created_at: new Date().toISOString()
                             }]);
+
+                            // Если сообщение от собеседника, отправляем подтверждение прочтения
+                            if (data.author !== user_id && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({ type: 'read', author: user_id }));
+                            }
+
+                            setTimeout(() => {
+                                messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current?.scrollHeight || 0);
+                            }, 10);
+                        } else if (type === 'read') {
+                            // Отмечаем все сообщения как прочитанные
+                            setMessages(prev => prev.map(m => 
+                                m.author === user_id ? { ...m, is_read: true } : m
+                            ));
                         } else if (type === 'offer' && data.author !== user_id) {
+                            console.log('[Call] Received offer');
                             pendingOfferRef.current = data.offer;
                             setIncomingCallVideo(data.video || false);
                             setCallStatus('ringing');
                         } else if (type === 'answer' && data.author !== user_id) {
+                            console.log('[Call] Received answer');
                             if (peerConnectionRef.current && data.answer) {
                                 peerConnectionRef.current.setRemoteDescription(
                                     new RTCSessionDescription(data.answer)
                                 ).then(() => {
+                                    console.log('[RTC] Remote description set (answer)');
                                     remoteDescriptionSetRef.current = true;
                                     
                                     if (pendingRemoteCandidatesRef.current.length > 0) {
+                                        console.log('[RTC] Adding', pendingRemoteCandidatesRef.current.length, 'pending candidates');
                                         pendingRemoteCandidatesRef.current.forEach(async (c) => {
                                             try {
                                                 await peerConnectionRef.current!.addIceCandidate(new RTCIceCandidate(c));
-                                            } catch (e) {}
+                                            } catch (e) {
+                                                console.error('[RTC] Failed to add pending candidate:', e);
+                                            }
                                         });
                                         pendingRemoteCandidatesRef.current = [];
                                     }
-                                }).catch(() => {});
+                                }).catch(err => console.error('[RTC] Failed to set remote description:', err));
                             }
                         } else if (type === 'ice-candidate' && data.author !== user_id) {
+                            console.log('[Call] Received ICE candidate');
                             if (peerConnectionRef.current && data.candidate) {
                                 if (remoteDescriptionSetRef.current) {
                                     peerConnectionRef.current.addIceCandidate(
                                         new RTCIceCandidate(data.candidate)
-                                    ).catch(() => {});
+                                    ).catch(err => console.error('[RTC] Failed to add ICE candidate:', err));
                                 } else {
+                                    console.log('[RTC] Queueing ICE candidate');
                                     pendingRemoteCandidatesRef.current.push(data.candidate);
                                 }
                             }
                         } else if (type === 'hangup' && data.author !== user_id) {
+                            console.log('[Call] Received hangup');
                             hangup();
                         }
-
-                        setTimeout(() => {
-                            messagesBlockRef.current?.scrollTo(0, messagesBlockRef.current?.scrollHeight || 0);
-                        }, 10);
-                    } catch (e) {}
+                    } catch (e) {
+                        console.error('[WS] Message parsing error:', e);
+                    }
                 };
 
-                ws.onerror = () => {
+                ws.onerror = (err) => {
+                    console.error('[WS] Error:', err);
                     setWsConnected(false);
                     setInterlocutorOnline(false);
                 };
 
                 ws.onclose = () => {
+                    console.log('[WS] Connection closed');
                     if (wsRef.current === ws) {
                         wsRef.current = null;
                     }
                     setWsConnected(false);
                     setInterlocutorOnline(false);
+                    clearInterval(pingInterval);
+                    if (activityCheckIntervalRef.current) {
+                        clearInterval(activityCheckIntervalRef.current);
+                        activityCheckIntervalRef.current = null;
+                    }
 
                     if (!isIntentionallyClosed) {
+                        console.log('[WS] Reconnecting in 3s...');
                         reconnectTimeout = setTimeout(connect, 3000);
                     }
                 };
             } catch (err) {
+                console.error('[WS] Connection error:', err);
                 setWsConnected(false);
                 setInterlocutorOnline(false);
             }
@@ -546,6 +663,11 @@ export default function Messenger() {
         return () => {
             isIntentionallyClosed = true;
             clearTimeout(reconnectTimeout);
+            clearInterval(pingInterval);
+            if (activityCheckIntervalRef.current) {
+                clearInterval(activityCheckIntervalRef.current);
+                activityCheckIntervalRef.current = null;
+            }
             if (wsRef.current) {
                 wsRef.current.close();
                 wsRef.current = null;
@@ -561,14 +683,14 @@ export default function Messenger() {
             const secs = callDuration % 60;
             return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
-        if (wsConnected && interlocutorOnline) return 'В сети';
+        if (interlocutorOnline) return 'В сети';
         return 'Не в сети';
     };
 
     const getStatusColor = (): "default" | "error" | "success" | "primary" | "secondary" | "info" | "warning" => {
         if (callStatus === 'calling' || callStatus === 'ringing') return 'warning';
         if (callStatus === 'connected') return 'error';
-        if (wsConnected && interlocutorOnline) return 'success';
+        if (interlocutorOnline) return 'success';
         return 'default';
     };
 
@@ -640,7 +762,7 @@ export default function Messenger() {
                     Выберите собеседника
                 </span>
             ) : (
-                <Box sx={{ display: 'flex', flex: 1 }}>
+                <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
                     <section id='messages' ref={messagesBlockRef} style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
                         {messages.length === 0 && <span id="no-messages-text">История пуста</span>}
                         {messages.map((m, i) => (
@@ -655,12 +777,25 @@ export default function Messenger() {
                                     justifyContent: m.author === user_id ? 'flex-end' : 'flex-start'
                                 }}
                             >
-                                <Typography variant="body2">
-                                    {m.text}
-                                </Typography>
+                                <Box sx={{
+                                    padding: '10px',
+                                    borderRadius: '10px',
+                                    maxWidth: '70%',
+                                    backgroundColor: m.author === user_id ? '#4CAF50' : '#8BC34A',
+                                    color: 'white',
+                                    borderBottomLeftRadius: m.author === user_id ? '10px' : '0',
+                                    borderBottomRightRadius: m.author === user_id ? '0' : '10px'
+                                }}>
+                                    <Typography variant="body2">
+                                        {m.text}
+                                    </Typography>
+                                </Box>
                                 {m.author === user_id && (
                                     <>
-                                        {m.is_read ? <DoneAllIcon sx={{ fontSize: 16 }} /> : <CheckIcon sx={{ fontSize: 16 }} />}
+                                        {m.is_read ? 
+                                            <DoneAllIcon sx={{ fontSize: 16, color: '#4CAF50' }} /> : 
+                                            <CheckIcon sx={{ fontSize: 16, color: '#999' }} />
+                                        }
                                     </>
                                 )}
                             </Box>
@@ -670,7 +805,7 @@ export default function Messenger() {
                     {(callStatus === 'calling' || callStatus === 'connected') && (
                         <Box sx={{
                             width: 400,
-                            borderLeft: '1px solid #ccc',
+                            borderLeft: '1px solid #444',
                             display: 'flex',
                             flexDirection: 'column',
                             backgroundColor: '#000',
@@ -783,15 +918,21 @@ export default function Messenger() {
                 onClose={declineCall}
                 maxWidth="xs" 
                 fullWidth
+                PaperProps={{
+                    sx: {
+                        backgroundColor: '#1e1e1e',
+                        backgroundImage: 'none'
+                    }
+                }}
             >
                 <DialogContent sx={{ textAlign: 'center', py: 4 }}>
                     <Avatar sx={{ width: 80, height: 80, margin: '0 auto 16px', bgcolor: '#4CAF50' }}>
                         {interlocutorName[0]?.toUpperCase()}
                     </Avatar>
-                    <Typography variant="h6" gutterBottom>
+                    <Typography variant="h6" gutterBottom color="white">
                         {interlocutorName}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                    <Typography variant="body2" color="grey.400" gutterBottom>
                         {incomingCallVideo ? 'Видео звонок' : 'Аудио звонок'}
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mt: 3 }}>
