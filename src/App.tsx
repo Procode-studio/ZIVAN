@@ -111,25 +111,26 @@ function App() {
   return (
     <ThemeProvider theme={darkTheme}>
       <UserInfoContext.Provider value={{userInfo, setUserInfo: updateUserInfo, logout}}>
-        <BrowserView>
-          <BrowserRouter>
+        <BrowserRouter>
+          {/* Desktop Routes */}
+          <BrowserView>
             <Routes>
               <Route path='/' element={isLoggedIn ? <DefaultPage/> : <DesktopLoginPage/>} />
               <Route path='/messenger/:id' element={isLoggedIn ? <DesktopMessengerPage/> : <DesktopLoginPage/>} />
               <Route path='/login' element={<DesktopLoginPage/>} />
             </Routes>
-          </BrowserRouter>
-        </BrowserView>
-        <MobileView className='mobile'>
-          <BrowserRouter>
+          </BrowserView>
+
+          {/* Mobile Routes */}
+          <MobileView className='mobile'>
             <Routes>
-              <Route path='/' element={isLoggedIn ? <DefaultPage/> : <DesktopLoginPage/>} />
-              <Route path='/messenger/:id?' element={isLoggedIn ? <MobileMessenger /> : <DesktopLoginPage/>} />
+              <Route path='/' element={isLoggedIn ? <MobileFriendsPage /> : <DesktopLoginPage/>} />
               <Route path='/friends' element={isLoggedIn ? <MobileFriendsPage /> : <DesktopLoginPage/>} />
+              <Route path='/messenger/:id' element={isLoggedIn ? <MobileMessenger /> : <DesktopLoginPage/>} />
               <Route path='/login' element={<DesktopLoginPage/>} />
             </Routes>
-          </BrowserRouter>
-        </MobileView>
+          </MobileView>
+        </BrowserRouter>
       </UserInfoContext.Provider>
     </ThemeProvider>
   );
