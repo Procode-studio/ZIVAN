@@ -9,7 +9,7 @@ import axios from 'axios';
 import DefaultPage from './Desktop/pages/DefaultPage';
 import { BrowserView, MobileView } from 'react-device-detect';
 import MobileFriendsPage from './Mobile/pages/FriendsPage';
-import MobileMessenger from './Mobile/components/Messenger';
+import MobileMessenger from './Mobile/pages/Messenger';
 import { getServerUrl } from './config/serverConfig';
 
 const darkTheme = createTheme({
