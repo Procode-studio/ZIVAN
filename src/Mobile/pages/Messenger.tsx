@@ -1,5 +1,5 @@
 import { Box, CircularProgress, Typography } from "@mui/material";
-import { useContext, useEffect, useState, useCallback } from "react";
+import { useContext, useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import { UserInfoContext } from "../../App";
@@ -20,13 +20,16 @@ export default function MobileMessenger() {
     const interlocutorId = parseInt(id || '-1');
     const [interlocutorName, setInterlocutorName] = useState('');
 
+    // Ref для хранения функции обработки сигналинга (решает проблему циклических зависимостей)
+    const signalingHandlerRef = useRef<((data: any) => void) | null>(null);
+
     // Load interlocutor profile
     useEffect(() => {
         if (interlocutorId === -1) {
             setInterlocutorName('');
             return;
         }
-        
+
         const controller = new AbortController();
         axios.get(`${getServerUrl()}/users/${interlocutorId}`, {
             signal: controller.signal
@@ -42,20 +45,23 @@ export default function MobileMessenger() {
                     setInterlocutorName(`User #${interlocutorId}`);
                 }
             });
-        
+
         return () => controller.abort();
     }, [interlocutorId]);
 
     // Messages hook
-    const { 
-        messages, 
-        isLoading: messagesLoading, 
-        messagesEndRef, 
-        addMessage, 
-        markAsRead 
+    const {
+        messages,
+        isLoading: messagesLoading,
+        messagesEndRef,
+        addMessage,
+        markAsRead
     } = useMessages(userId, interlocutorId);
 
-    // WebSocket message handler
+    // Ref для sendWsMessage (решает проблему циклических зависимостей)
+    const sendWsMessageRef = useRef<((msg: any) => boolean) | null>(null);
+
+    // WebSocket message handler - теперь использует ref
     const handleWebSocketMessage = useCallback((data: any) => {
         const { type, author } = data;
 
@@ -68,29 +74,37 @@ export default function MobileMessenger() {
                 is_read: data.author === userId,
                 created_at: new Date().toISOString()
             });
-            
-            if (author !== userId && wsRef.current?.readyState === WebSocket.OPEN) {
-                wsRef.current.send(JSON.stringify({ type: 'read', author: userId }));
+
+            // Отправляем read через ref
+            if (author !== userId && sendWsMessageRef.current) {
+                sendWsMessageRef.current({ type: 'read', author: userId });
             }
         } else if (type === 'read') {
             markAsRead();
         } else {
-            // Handle WebRTC signaling
-            handleSignalingMessage(data);
+            // Handle WebRTC signaling через ref
+            if (signalingHandlerRef.current) {
+                signalingHandlerRef.current(data);
+            }
         }
     }, [userId, addMessage, markAsRead]);
 
     // WebSocket hook
-    const { 
-        isConnected: wsConnected, 
-        interlocutorOnline, 
+    const {
+        isConnected: wsConnected,
+        interlocutorOnline,
         sendMessage: sendWsMessage,
-        wsRef 
+        wsRef
     } = useWebSocket({
         userId,
         interlocutorId,
         onMessage: handleWebSocketMessage
     });
+
+    // Обновляем ref при изменении sendWsMessage
+    useEffect(() => {
+        sendWsMessageRef.current = sendWsMessage;
+    }, [sendWsMessage]);
 
     // WebRTC hook
     const {
@@ -113,6 +127,11 @@ export default function MobileMessenger() {
         userId,
         sendWsMessage
     });
+
+    // Обновляем ref при изменении handleSignalingMessage
+    useEffect(() => {
+        signalingHandlerRef.current = handleSignalingMessage;
+    }, [handleSignalingMessage]);
 
     // Send text message
     const handleSendMessage = useCallback((text: string) => {

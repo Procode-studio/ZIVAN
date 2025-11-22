@@ -47,7 +47,7 @@ export const useWebSocket = ({ userId, interlocutorId, onMessage }: UseWebSocket
 
         const id1 = Math.min(userId, interlocutorId);
         const id2 = Math.max(userId, interlocutorId);
-        const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}`;
+        const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}?current_user=${userId}`;
         let isIntentionallyClosed = false;
 
         const connect = () => {

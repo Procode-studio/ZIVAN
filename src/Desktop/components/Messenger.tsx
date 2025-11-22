@@ -497,7 +497,7 @@ export default function Messenger() {
 
         const id1 = Math.min(user_id, interlocutorId);
         const id2 = Math.max(user_id, interlocutorId);
-        const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}`;
+        const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}?current_user=${user_id}`;
         
         let reconnectTimeout: ReturnType<typeof setTimeout>;
         let isIntentionallyClosed = false;
