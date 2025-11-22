@@ -16,10 +16,13 @@ interface UseWebSocketProps {
 export const useWebSocket = ({ userId, interlocutorId, onMessage }: UseWebSocketProps) => {
     const [isConnected, setIsConnected] = useState(false);
     const [interlocutorOnline, setInterlocutorOnline] = useState(false);
+    const [isTyping, setIsTyping] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
     const lastActivityRef = useRef<number>(0);
     const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const activityCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastTypingSentRef = useRef<number>(0);
 
     const sendMessage = useCallback((message: WebSocketMessage) => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -33,6 +36,15 @@ export const useWebSocket = ({ userId, interlocutorId, onMessage }: UseWebSocket
         lastActivityRef.current = Date.now();
         setInterlocutorOnline(true);
     }, []);
+
+    const sendTyping = useCallback(() => {
+        const now = Date.now();
+        // Отправляем typing не чаще чем раз в 2 секунды
+        if (now - lastTypingSentRef.current > 2000 && wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'typing', author: userId }));
+            lastTypingSentRef.current = now;
+        }
+    }, [userId]);
 
     useEffect(() => {
         if (interlocutorId === -1 || userId === -1) {
@@ -87,6 +99,15 @@ export const useWebSocket = ({ userId, interlocutorId, onMessage }: UseWebSocket
 
                         if (data.type === 'ping' && data.author !== userId) {
                             ws.send(JSON.stringify({ type: 'pong', author: userId }));
+                        } else if (data.type === 'typing' && data.author !== userId) {
+                            // Показываем индикатор печати
+                            setIsTyping(true);
+                            if (typingTimeoutRef.current) {
+                                clearTimeout(typingTimeoutRef.current);
+                            }
+                            typingTimeoutRef.current = setTimeout(() => {
+                                setIsTyping(false);
+                            }, 3000);
                         }
 
                         onMessage(data);
@@ -149,7 +170,9 @@ export const useWebSocket = ({ userId, interlocutorId, onMessage }: UseWebSocket
     return {
         isConnected,
         interlocutorOnline,
+        isTyping,
         sendMessage,
+        sendTyping,
         wsRef
     };
 };

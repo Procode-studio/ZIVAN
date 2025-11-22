@@ -4,10 +4,11 @@ import { useRef, useCallback } from "react";
 
 interface MessageInputProps {
     onSendMessage: (text: string) => void;
+    onTyping?: () => void;
     disabled?: boolean;
 }
 
-const MessageInput = ({ onSendMessage, disabled = false }: MessageInputProps) => {
+const MessageInput = ({ onSendMessage, onTyping, disabled = false }: MessageInputProps) => {
     const inputRef = useRef<HTMLInputElement>(null);
 
     const handleSend = useCallback(() => {
@@ -52,6 +53,7 @@ const MessageInput = ({ onSendMessage, disabled = false }: MessageInputProps) =>
                 disabled={disabled}
                 variant="outlined"
                 size="small"
+                onChange={onTyping}
                 onKeyPress={handleKeyPress}
                 sx={{
                     '& .MuiOutlinedInput-root': {

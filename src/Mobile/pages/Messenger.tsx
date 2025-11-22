@@ -93,7 +93,9 @@ export default function MobileMessenger() {
     const {
         isConnected: wsConnected,
         interlocutorOnline,
+        isTyping,
         sendMessage: sendWsMessage,
+        sendTyping,
         wsRef
     } = useWebSocket({
         userId,
@@ -219,6 +221,7 @@ export default function MobileMessenger() {
                 callStatus={callStatus}
                 callDuration={callDuration}
                 interlocutorOnline={interlocutorOnline}
+                isTyping={isTyping}
                 onStartAudioCall={handleStartAudioCall}
                 onStartVideoCall={handleStartVideoCall}
                 onHangup={hangup}
@@ -234,6 +237,7 @@ export default function MobileMessenger() {
             {/* Input */}
             <MessageInput
                 onSendMessage={handleSendMessage}
+                onTyping={sendTyping}
                 disabled={interlocutorId === -1}
             />
 

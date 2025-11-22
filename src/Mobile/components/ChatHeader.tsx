@@ -12,6 +12,7 @@ interface ChatHeaderProps {
     callStatus: CallStatus;
     callDuration: number;
     interlocutorOnline: boolean;
+    isTyping?: boolean;
     onStartAudioCall: () => void;
     onStartVideoCall: () => void;
     onHangup: () => void;
@@ -22,6 +23,7 @@ const ChatHeader = ({
     callStatus,
     callDuration,
     interlocutorOnline,
+    isTyping = false,
     onStartAudioCall,
     onStartVideoCall,
     onHangup
@@ -36,6 +38,7 @@ const ChatHeader = ({
             const secs = callDuration % 60;
             return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
+        if (isTyping) return 'печатает...';
         if (interlocutorOnline) return 'в сети';
         return 'не в сети';
     };
@@ -43,6 +46,7 @@ const ChatHeader = ({
     const getStatusColor = () => {
         if (callStatus === CallStatus.CALLING || callStatus === CallStatus.RINGING) return '#FFA726';
         if (callStatus === CallStatus.CONNECTED) return '#EF5350';
+        if (isTyping) return '#29B6F6';
         if (interlocutorOnline) return '#4CAF50';
         return '#757575';
     };
@@ -86,7 +90,7 @@ const ChatHeader = ({
                     >
                         {interlocutorName[0]?.toUpperCase() || '?'}
                     </Avatar>
-                    {interlocutorOnline && callStatus === CallStatus.IDLE && (
+                    {interlocutorOnline && callStatus === CallStatus.IDLE && !isTyping && (
                         <Box
                             sx={{
                                 position: 'absolute',
@@ -120,7 +124,7 @@ const ChatHeader = ({
                             sx={{
                                 fontSize: 8,
                                 color: getStatusColor(),
-                                animation: callStatus === CallStatus.CALLING ? 'pulse 1.5s infinite' : 'none',
+                                animation: (callStatus === CallStatus.CALLING || isTyping) ? 'pulse 1.5s infinite' : 'none',
                                 '@keyframes pulse': {
                                     '0%, 100%': { opacity: 1 },
                                     '50%': { opacity: 0.4 }

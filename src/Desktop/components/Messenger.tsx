@@ -1,15 +1,13 @@
-import { 
-    CircularProgress, 
-    IconButton, 
-    TextField, 
-    Dialog, 
-    DialogContent, 
-    Avatar, 
-    Box, 
-    Typography, 
-    Fab, 
-    Chip,
-    Paper
+import {
+    CircularProgress,
+    IconButton,
+    TextField,
+    Dialog,
+    DialogContent,
+    Avatar,
+    Box,
+    Typography,
+    Fab
 } from "@mui/material";
 import { useState, useRef, useContext, useEffect, useCallback } from "react";
 import { MessageType } from 'my-types/Message';
@@ -20,9 +18,9 @@ import CallEndIcon from '@mui/icons-material/CallEnd';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
 import CheckIcon from '@mui/icons-material/Check';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import './messenger.css';
 import { MessengerInterlocutorId } from "../pages/MessengerPage";
 import { UserInfoContext } from "../../App";
@@ -50,8 +48,11 @@ export default function Messenger() {
     const [wsConnected, setWsConnected] = useState(false);
     const [interlocutorName, setInterlocutorName] = useState('');
     const [interlocutorOnline, setInterlocutorOnline] = useState(false);
+    const [isTyping, setIsTyping] = useState(false);
     const lastActivityTimeRef = useRef<number>(0);
     const activityCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastTypingSentRef = useRef<number>(0);
 
     const [callStatus, setCallStatus] = useState<CallStatus>('idle');
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
@@ -576,9 +577,18 @@ export default function Messenger() {
                             }, 10);
                         } else if (type === 'read') {
                             // Отмечаем все сообщения как прочитанные
-                            setMessages(prev => prev.map(m => 
+                            setMessages(prev => prev.map(m =>
                                 m.author === user_id ? { ...m, is_read: true } : m
                             ));
+                        } else if (type === 'typing' && data.author !== user_id) {
+                            // Показываем индикатор печати
+                            setIsTyping(true);
+                            if (typingTimeoutRef.current) {
+                                clearTimeout(typingTimeoutRef.current);
+                            }
+                            typingTimeoutRef.current = setTimeout(() => {
+                                setIsTyping(false);
+                            }, 3000);
                         } else if (type === 'offer' && data.author !== user_id) {
                             console.log('[Call] Received offer');
                             pendingOfferRef.current = data.offer;
@@ -683,16 +693,28 @@ export default function Messenger() {
             const secs = callDuration % 60;
             return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
-        if (interlocutorOnline) return 'В сети';
-        return 'Не в сети';
+        if (isTyping) return 'печатает...';
+        if (interlocutorOnline) return 'в сети';
+        return 'не в сети';
     };
 
-    const getStatusColor = (): "default" | "error" | "success" | "primary" | "secondary" | "info" | "warning" => {
-        if (callStatus === 'calling' || callStatus === 'ringing') return 'warning';
-        if (callStatus === 'connected') return 'error';
-        if (interlocutorOnline) return 'success';
-        return 'default';
+    const getStatusColor = () => {
+        if (callStatus === 'calling' || callStatus === 'ringing') return '#FFA726';
+        if (callStatus === 'connected') return '#EF5350';
+        if (isTyping) return '#29B6F6';
+        if (interlocutorOnline) return '#4CAF50';
+        return '#757575';
     };
+
+    // Функция для отправки typing
+    const sendTyping = useCallback(() => {
+        const now = Date.now();
+        // Отправляем typing не чаще чем раз в 2 секунды
+        if (now - lastTypingSentRef.current > 2000 && wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'typing', author: user_id }));
+            lastTypingSentRef.current = now;
+        }
+    }, [user_id]);
 
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -702,55 +724,112 @@ export default function Messenger() {
 
     return (
         <div id="messenger">
-            {isLoaded && (
-                <Paper sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar sx={{ width: 40, height: 40 }}>
-                            {interlocutorName[0]?.toUpperCase() || '?'}
-                        </Avatar>
+            {isLoaded && interlocutorId !== -1 && (
+                <Box sx={{
+                    p: 2,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: 'linear-gradient(180deg, rgba(22,33,62,1) 0%, rgba(26,26,46,0.95) 100%)',
+                    borderBottom: '1px solid rgba(76, 175, 80, 0.2)',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+                }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Box sx={{ position: 'relative' }}>
+                            <Avatar
+                                sx={{
+                                    width: 48,
+                                    height: 48,
+                                    background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                                    fontSize: '1.2rem',
+                                    fontWeight: 'bold',
+                                    boxShadow: '0 2px 10px rgba(76, 175, 80, 0.3)'
+                                }}
+                            >
+                                {interlocutorName[0]?.toUpperCase() || '?'}
+                            </Avatar>
+                            {interlocutorOnline && callStatus === 'idle' && !isTyping && (
+                                <Box
+                                    sx={{
+                                        position: 'absolute',
+                                        bottom: 0,
+                                        right: 0,
+                                        width: 14,
+                                        height: 14,
+                                        backgroundColor: '#4CAF50',
+                                        borderRadius: '50%',
+                                        border: '3px solid #1a1a2e',
+                                        boxShadow: '0 0 8px #4CAF50'
+                                    }}
+                                />
+                            )}
+                        </Box>
                         <Box>
-                            <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                            <Typography sx={{ fontWeight: 600, color: '#fff', fontSize: '1.1rem' }}>
                                 {interlocutorName}
                             </Typography>
-                            <Chip
-                                label={getStatusText()}
-                                color={getStatusColor()}
-                                size="small"
-                                variant="outlined"
-                            />
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <FiberManualRecordIcon
+                                    sx={{
+                                        fontSize: 10,
+                                        color: getStatusColor(),
+                                        animation: (callStatus === 'calling' || isTyping) ? 'pulse 1.5s infinite' : 'none',
+                                        '@keyframes pulse': {
+                                            '0%, 100%': { opacity: 1 },
+                                            '50%': { opacity: 0.4 }
+                                        }
+                                    }}
+                                />
+                                <Typography sx={{ color: getStatusColor(), fontSize: '0.85rem', fontWeight: 500 }}>
+                                    {getStatusText()}
+                                </Typography>
+                            </Box>
                         </Box>
                     </Box>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        {callStatus === 'idle' && (
+                    <Box sx={{ display: 'flex', gap: 1.5 }}>
+                        {callStatus === 'idle' ? (
                             <>
-                                <IconButton 
-                                    onClick={() => startCall(false)} 
-                                    color="primary"
+                                <IconButton
+                                    onClick={() => startCall(false)}
+                                    sx={{
+                                        color: '#4CAF50',
+                                        backgroundColor: 'rgba(76, 175, 80, 0.15)',
+                                        '&:hover': {
+                                            backgroundColor: 'rgba(76, 175, 80, 0.3)',
+                                            transform: 'scale(1.1)'
+                                        },
+                                        transition: 'all 0.2s ease'
+                                    }}
                                 >
                                     <PhoneIcon />
                                 </IconButton>
-                                <IconButton 
-                                    onClick={() => startCall(true)} 
-                                    color="primary"
+                                <IconButton
+                                    onClick={() => startCall(true)}
+                                    sx={{
+                                        color: '#4CAF50',
+                                        backgroundColor: 'rgba(76, 175, 80, 0.15)',
+                                        '&:hover': {
+                                            backgroundColor: 'rgba(76, 175, 80, 0.3)',
+                                            transform: 'scale(1.1)'
+                                        },
+                                        transition: 'all 0.2s ease'
+                                    }}
                                 >
                                     <VideocamIcon />
                                 </IconButton>
                             </>
-                        )}
-                        {callStatus !== 'idle' && callStatus !== 'ringing' && (
-                            <Fab 
-                                color="error" 
+                        ) : (callStatus !== 'ringing' && (
+                            <Fab
+                                color="error"
                                 size="small"
                                 onClick={hangup}
+                                sx={{ boxShadow: '0 4px 15px rgba(239, 83, 80, 0.4)' }}
                             >
                                 <CallEndIcon />
                             </Fab>
-                        )}
-                        <IconButton>
-                            <MoreVertIcon />
-                        </IconButton>
+                        ))}
                     </Box>
-                </Paper>
+                </Box>
             )}
 
             {!isLoaded ? (
@@ -765,41 +844,45 @@ export default function Messenger() {
                 <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
                     <section id='messages' ref={messagesBlockRef} style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
                         {messages.length === 0 && <span id="no-messages-text">История пуста</span>}
-                        {messages.map((m, i) => (
-                            <Box 
-                                key={i} 
-                                data-from={m.author === user_id ? 'me' : 'other'}
-                                sx={{ 
-                                    mb: 1, 
-                                    display: 'flex',
-                                    alignItems: 'flex-end',
-                                    gap: 0.5,
-                                    justifyContent: m.author === user_id ? 'flex-end' : 'flex-start'
-                                }}
-                            >
-                                <Box sx={{
-                                    padding: '10px',
-                                    borderRadius: '10px',
-                                    maxWidth: '70%',
-                                    backgroundColor: m.author === user_id ? '#4CAF50' : '#8BC34A',
-                                    color: 'white',
-                                    borderBottomLeftRadius: m.author === user_id ? '10px' : '0',
-                                    borderBottomRightRadius: m.author === user_id ? '0' : '10px'
-                                }}>
-                                    <Typography variant="body2">
-                                        {m.text}
-                                    </Typography>
+                        {messages.map((m, i) => {
+                            const isMe = m.author === user_id;
+                            return (
+                                <Box
+                                    key={i}
+                                    sx={{
+                                        mb: 1.5,
+                                        display: 'flex',
+                                        alignItems: 'flex-end',
+                                        gap: 0.5,
+                                        justifyContent: isMe ? 'flex-end' : 'flex-start'
+                                    }}
+                                >
+                                    <Box sx={{
+                                        maxWidth: '60%',
+                                        p: '10px 14px',
+                                        borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                                        background: isMe
+                                            ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'
+                                            : 'rgba(255,255,255,0.08)',
+                                        color: '#fff',
+                                        wordWrap: 'break-word',
+                                        boxShadow: isMe
+                                            ? '0 2px 12px rgba(76, 175, 80, 0.3)'
+                                            : '0 2px 8px rgba(0,0,0,0.2)',
+                                        border: isMe ? 'none' : '1px solid rgba(255,255,255,0.08)'
+                                    }}>
+                                        <Typography variant="body2" sx={{ fontSize: '0.95rem', lineHeight: 1.4 }}>
+                                            {m.text}
+                                        </Typography>
+                                    </Box>
+                                    {isMe && (
+                                        m.is_read ?
+                                            <DoneAllIcon sx={{ fontSize: 16, color: '#4CAF50', filter: 'drop-shadow(0 0 4px rgba(76, 175, 80, 0.5))' }} /> :
+                                            <CheckIcon sx={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }} />
+                                    )}
                                 </Box>
-                                {m.author === user_id && (
-                                    <>
-                                        {m.is_read ? 
-                                            <DoneAllIcon sx={{ fontSize: 16, color: '#4CAF50' }} /> : 
-                                            <CheckIcon sx={{ fontSize: 16, color: '#999' }} />
-                                        }
-                                    </>
-                                )}
-                            </Box>
-                        ))}
+                            );
+                        })}
                     </section>
 
                     {(callStatus === 'calling' || callStatus === 'connected') && (
@@ -913,68 +996,196 @@ export default function Messenger() {
                 </Box>
             )}
 
-            <Dialog 
-                open={callStatus === 'ringing'} 
+            <Dialog
+                open={callStatus === 'ringing'}
                 onClose={declineCall}
-                maxWidth="xs" 
+                maxWidth="xs"
                 fullWidth
                 PaperProps={{
                     sx: {
-                        backgroundColor: '#1e1e1e',
-                        backgroundImage: 'none'
+                        background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)',
+                        backgroundImage: 'none',
+                        borderRadius: 3,
+                        border: '1px solid rgba(76, 175, 80, 0.2)'
                     }
                 }}
             >
-                <DialogContent sx={{ textAlign: 'center', py: 4 }}>
-                    <Avatar sx={{ width: 80, height: 80, margin: '0 auto 16px', bgcolor: '#4CAF50' }}>
-                        {interlocutorName[0]?.toUpperCase()}
-                    </Avatar>
-                    <Typography variant="h6" gutterBottom color="white">
+                <DialogContent sx={{ textAlign: 'center', py: 5 }}>
+                    {/* Пульсирующий круг */}
+                    <Box sx={{
+                        position: 'relative',
+                        display: 'inline-block',
+                        mb: 2,
+                        '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            top: -10,
+                            left: -10,
+                            right: -10,
+                            bottom: -10,
+                            borderRadius: '50%',
+                            border: '2px solid rgba(76, 175, 80, 0.3)',
+                            animation: 'pulse-ring 1.5s ease-out infinite'
+                        },
+                        '@keyframes pulse-ring': {
+                            '0%': { transform: 'scale(0.9)', opacity: 1 },
+                            '100%': { transform: 'scale(1.3)', opacity: 0 }
+                        }
+                    }}>
+                        <Avatar
+                            sx={{
+                                width: 90,
+                                height: 90,
+                                background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                                fontSize: '2rem',
+                                fontWeight: 'bold',
+                                boxShadow: '0 4px 20px rgba(76, 175, 80, 0.4)'
+                            }}
+                        >
+                            {interlocutorName[0]?.toUpperCase()}
+                        </Avatar>
+                    </Box>
+
+                    <Typography
+                        variant="h5"
+                        sx={{
+                            color: '#fff',
+                            fontWeight: 600,
+                            mb: 1
+                        }}
+                    >
                         {interlocutorName}
                     </Typography>
-                    <Typography variant="body2" color="grey.400" gutterBottom>
-                        {incomingCallVideo ? 'Видео звонок' : 'Аудио звонок'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', mt: 3 }}>
-                        <Fab color="error" onClick={declineCall}>
-                            <CallEndIcon />
-                        </Fab>
-                        <Fab 
-                            color="success" 
-                            onClick={() => pendingOfferRef.current && answerCall(pendingOfferRef.current, incomingCallVideo)}
-                        >
-                            <PhoneIcon />
-                        </Fab>
+
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 3 }}>
+                        {incomingCallVideo ? <VideocamIcon sx={{ color: '#4CAF50', fontSize: 20 }} /> : <PhoneIcon sx={{ color: '#4CAF50', fontSize: 20 }} />}
+                        <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.95rem' }}>
+                            Входящий {incomingCallVideo ? 'видео' : 'аудио'} звонок
+                        </Typography>
+                    </Box>
+
+                    <Box sx={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                        <Box sx={{ textAlign: 'center' }}>
+                            <Fab
+                                onClick={declineCall}
+                                sx={{
+                                    background: 'linear-gradient(135deg, #EF5350 0%, #C62828 100%)',
+                                    boxShadow: '0 4px 15px rgba(239, 83, 80, 0.4)',
+                                    '&:hover': {
+                                        background: 'linear-gradient(135deg, #F44336 0%, #D32F2F 100%)',
+                                    }
+                                }}
+                                size="large"
+                            >
+                                <CallEndIcon />
+                            </Fab>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', mt: 1 }}>
+                                Отклонить
+                            </Typography>
+                        </Box>
+                        <Box sx={{ textAlign: 'center' }}>
+                            <Fab
+                                onClick={() => pendingOfferRef.current && answerCall(pendingOfferRef.current, incomingCallVideo)}
+                                sx={{
+                                    background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                                    boxShadow: '0 4px 15px rgba(76, 175, 80, 0.4)',
+                                    '&:hover': {
+                                        background: 'linear-gradient(135deg, #66BB6A 0%, #43A047 100%)',
+                                    }
+                                }}
+                                size="large"
+                            >
+                                <PhoneIcon />
+                            </Fab>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', mt: 1 }}>
+                                Ответить
+                            </Typography>
+                        </Box>
                     </Box>
                 </DialogContent>
             </Dialog>
 
             <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
 
-            <section id='input' style={{ padding: '10px', display: 'flex', gap: '10px' }}>
+            <Box sx={{
+                p: 2,
+                display: 'flex',
+                gap: 2,
+                alignItems: 'flex-end',
+                background: 'linear-gradient(180deg, rgba(26,26,46,0.95) 0%, rgba(22,33,62,1) 100%)',
+                borderTop: '1px solid rgba(76, 175, 80, 0.3)',
+                boxShadow: '0 -4px 20px rgba(0,0,0,0.3)'
+            }}>
                 <TextField
-                    style={{ flexGrow: 1 }}
+                    fullWidth
                     color="secondary"
                     multiline
                     maxRows={4}
-                    placeholder="Написать..."
+                    placeholder="Сообщение..."
                     inputRef={inputRef}
                     disabled={interlocutorId === -1}
+                    onChange={sendTyping}
                     onKeyPress={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
                             sendMessage();
                         }
                     }}
+                    sx={{
+                        '& .MuiOutlinedInput-root': {
+                            color: '#fff',
+                            backgroundColor: 'rgba(255,255,255,0.08)',
+                            borderRadius: '20px',
+                            fontSize: '15px',
+                            '& fieldset': {
+                                borderColor: 'rgba(76, 175, 80, 0.3)',
+                                borderWidth: '1px'
+                            },
+                            '&:hover fieldset': {
+                                borderColor: 'rgba(76, 175, 80, 0.5)'
+                            },
+                            '&.Mui-focused fieldset': {
+                                borderColor: '#4CAF50',
+                                borderWidth: '2px'
+                            }
+                        },
+                        '& .MuiOutlinedInput-input': {
+                            padding: '10px 16px',
+                            '&::placeholder': {
+                                color: 'rgba(255,255,255,0.5)',
+                                opacity: 1
+                            }
+                        }
+                    }}
                 />
-                <IconButton 
-                    onClick={sendMessage} 
-                    disabled={interlocutorId === -1} 
-                    color="secondary"
+                <IconButton
+                    onClick={sendMessage}
+                    disabled={interlocutorId === -1}
+                    sx={{
+                        width: 48,
+                        height: 48,
+                        background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                        color: '#fff',
+                        boxShadow: '0 4px 15px rgba(76, 175, 80, 0.4)',
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                            background: 'linear-gradient(135deg, #5CBF60 0%, #4CAF50 100%)',
+                            transform: 'scale(1.05)',
+                            boxShadow: '0 6px 20px rgba(76, 175, 80, 0.5)'
+                        },
+                        '&:active': {
+                            transform: 'scale(0.95)'
+                        },
+                        '&:disabled': {
+                            background: 'rgba(255,255,255,0.1)',
+                            color: 'rgba(255,255,255,0.3)',
+                            boxShadow: 'none'
+                        }
+                    }}
                 >
-                    <SendIcon />
+                    <SendIcon sx={{ fontSize: 22 }} />
                 </IconButton>
-            </section>
+            </Box>
         </div>
     );
 }
