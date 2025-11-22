@@ -175,11 +175,23 @@ export default function Messenger() {
 
     const createPeerConnection = useCallback(() => {
         try {
-            console.log('[RTC] Creating PeerConnection with ICE servers:', iceServers);
+            // Валидация ICE серверов перед использованием
+            const validIceServers = iceServers?.length ? iceServers.filter(server => {
+                if (!server.urls) return false;
+                const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+                // Проверяем что все URL валидны
+                return urls.every(url => {
+                    if (typeof url !== 'string') return false;
+                    // Разрешаем только stun: и turn:/turns:
+                    return /^(stun|turns?):/.test(url);
+                });
+            }) : [];
+
+            console.log('[RTC] Creating PeerConnection with ICE servers:', validIceServers);
+
             const config: RTCConfiguration = {
-                iceServers: iceServers?.length ? iceServers : [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
+                iceServers: validIceServers.length > 0 ? validIceServers : [
+                    { urls: 'stun:stun.l.google.com:19302' }
                 ],
                 iceCandidatePoolSize: 10,
                 bundlePolicy: 'max-bundle',
@@ -841,161 +853,316 @@ export default function Messenger() {
                     Выберите собеседника
                 </span>
             ) : (
-                <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-                    <section id='messages' ref={messagesBlockRef} style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-                        {messages.length === 0 && <span id="no-messages-text">История пуста</span>}
-                        {messages.map((m, i) => {
-                            const isMe = m.author === user_id;
-                            return (
-                                <Box
-                                    key={i}
-                                    sx={{
-                                        mb: 1.5,
-                                        display: 'flex',
-                                        alignItems: 'flex-end',
-                                        gap: 0.5,
-                                        justifyContent: isMe ? 'flex-end' : 'flex-start'
-                                    }}
-                                >
-                                    <Box sx={{
-                                        maxWidth: '60%',
-                                        p: '10px 14px',
-                                        borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                                        background: isMe
-                                            ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'
-                                            : 'rgba(255,255,255,0.08)',
-                                        color: '#fff',
-                                        wordWrap: 'break-word',
-                                        boxShadow: isMe
-                                            ? '0 2px 12px rgba(76, 175, 80, 0.3)'
-                                            : '0 2px 8px rgba(0,0,0,0.2)',
-                                        border: isMe ? 'none' : '1px solid rgba(255,255,255,0.08)'
-                                    }}>
-                                        <Typography variant="body2" sx={{ fontSize: '0.95rem', lineHeight: 1.4 }}>
-                                            {m.text}
-                                        </Typography>
-                                    </Box>
-                                    {isMe && (
-                                        m.is_read ?
-                                            <DoneAllIcon sx={{ fontSize: 16, color: '#4CAF50', filter: 'drop-shadow(0 0 4px rgba(76, 175, 80, 0.5))' }} /> :
-                                            <CheckIcon sx={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }} />
-                                    )}
-                                </Box>
-                            );
-                        })}
-                    </section>
-
-                    {(callStatus === 'calling' || callStatus === 'connected') && (
-                        <Box sx={{
-                            width: 400,
-                            borderLeft: '1px solid #444',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            backgroundColor: '#000',
-                            position: 'relative'
-                        }}>
-                            <Box sx={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a' }}>
-                                {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
-                                    <video
-                                        ref={remoteVideoRef}
-                                        autoPlay
-                                        playsInline
-                                        style={{
-                                            width: '100%',
-                                            height: '100%',
-                                            objectFit: 'contain'
-                                        }}
-                                    />
-                                ) : (
-                                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                                        <Avatar sx={{ width: 100, height: 100, bgcolor: '#4CAF50', fontSize: 40 }}>
-                                            {interlocutorName[0]?.toUpperCase()}
-                                        </Avatar>
-                                        <Typography variant="h6" color="white">
-                                            {interlocutorName}
-                                        </Typography>
-                                        {callStatus === 'calling' && (
-                                            <Typography variant="body2" color="grey.400">
-                                                Вызов...
-                                            </Typography>
-                                        )}
-                                        {callStatus === 'connected' && (
-                                            <Typography variant="body2" color="grey.400">
-                                                {formatTime(callDuration)}
-                                            </Typography>
-                                        )}
-                                    </Box>
-                                )}
-
-                                {isVideoEnabled && localStream && localStream.getVideoTracks().length > 0 && (
-                                    <Box sx={{
-                                        position: 'absolute',
-                                        bottom: 100,
-                                        right: 16,
-                                        width: 160,
-                                        height: 120,
-                                        borderRadius: 2,
-                                        overflow: 'hidden',
-                                        border: '2px solid #4CAF50',
-                                        backgroundColor: '#222',
-                                        boxShadow: 3
-                                    }}>
-                                        <video
-                                            ref={localVideoRef}
-                                            autoPlay
-                                            muted
-                                            playsInline
-                                            style={{
-                                                width: '100%',
-                                                height: '100%',
-                                                objectFit: 'cover',
-                                                transform: 'scaleX(-1)'
-                                            }}
-                                        />
-                                    </Box>
-                                )}
-                            </Box>
-
-                            <Box sx={{ 
-                                p: 2, 
-                                display: 'flex', 
-                                gap: 2, 
-                                justifyContent: 'center', 
+                <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                    <section id='messages' ref={messagesBlockRef} style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+                        {messages.length === 0 ? (
+                            <Box sx={{
+                                display: 'flex',
+                                flexDirection: 'column',
                                 alignItems: 'center',
-                                backgroundColor: 'rgba(0,0,0,0.9)',
-                                borderTop: '1px solid #333'
+                                justifyContent: 'center',
+                                height: '100%',
+                                gap: 2
                             }}>
-                                <Fab
-                                    size="medium"
-                                    color={isAudioEnabled ? 'default' : 'error'}
-                                    onClick={toggleAudio}
-                                    sx={{ bgcolor: isAudioEnabled ? '#424242' : undefined }}
-                                >
-                                    {isAudioEnabled ? <MicIcon /> : <MicOffIcon />}
-                                </Fab>
-                                {localStream && localStream.getVideoTracks().length > 0 && (
-                                    <Fab
-                                        size="medium"
-                                        color={isVideoEnabled ? 'default' : 'error'}
-                                        onClick={toggleVideo}
-                                        sx={{ bgcolor: isVideoEnabled ? '#424242' : undefined }}
-                                    >
-                                        {isVideoEnabled ? <VideocamIcon /> : <VideocamOffIcon />}
-                                    </Fab>
-                                )}
-                                <Fab
-                                    size="medium"
-                                    color="error"
-                                    onClick={hangup}
-                                >
-                                    <CallEndIcon />
-                                </Fab>
+                                <Box sx={{
+                                    width: 100,
+                                    height: 100,
+                                    borderRadius: '50%',
+                                    background: 'rgba(76, 175, 80, 0.1)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}>
+                                    <Typography sx={{ fontSize: 50 }}>💬</Typography>
+                                </Box>
+                                <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '1.1rem' }}>
+                                    Начните общение!
+                                </Typography>
                             </Box>
-                        </Box>
-                    )}
+                        ) : (
+                            messages.map((m, i) => {
+                                const isMe = m.author === user_id;
+                                return (
+                                    <Box
+                                        key={i}
+                                        sx={{
+                                            mb: 1.5,
+                                            display: 'flex',
+                                            alignItems: 'flex-end',
+                                            gap: 0.5,
+                                            justifyContent: isMe ? 'flex-end' : 'flex-start'
+                                        }}
+                                    >
+                                        <Box sx={{
+                                            maxWidth: '60%',
+                                            p: '10px 14px',
+                                            borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                                            background: isMe
+                                                ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'
+                                                : 'rgba(255,255,255,0.08)',
+                                            color: '#fff',
+                                            wordWrap: 'break-word',
+                                            boxShadow: isMe
+                                                ? '0 2px 12px rgba(76, 175, 80, 0.3)'
+                                                : '0 2px 8px rgba(0,0,0,0.2)',
+                                            border: isMe ? 'none' : '1px solid rgba(255,255,255,0.08)'
+                                        }}>
+                                            <Typography variant="body2" sx={{ fontSize: '0.95rem', lineHeight: 1.4 }}>
+                                                {m.text}
+                                            </Typography>
+                                        </Box>
+                                        {isMe && (
+                                            m.is_read ?
+                                                <DoneAllIcon sx={{ fontSize: 16, color: '#4CAF50', filter: 'drop-shadow(0 0 4px rgba(76, 175, 80, 0.5))' }} /> :
+                                                <CheckIcon sx={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }} />
+                                        )}
+                                    </Box>
+                                );
+                            })
+                        )}
+                    </section>
                 </Box>
             )}
 
+            {/* Active call dialog - fullscreen */}
+            <Dialog
+                open={callStatus === 'calling' || callStatus === 'connected'}
+                onClose={hangup}
+                fullScreen
+                PaperProps={{
+                    sx: {
+                        background: 'linear-gradient(180deg, #0a0a15 0%, #1a1a2e 100%)',
+                        margin: 0,
+                        borderRadius: 0
+                    }
+                }}
+            >
+                <DialogContent sx={{
+                    p: 0,
+                    height: '100vh',
+                    width: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    position: 'relative',
+                    overflow: 'hidden'
+                }}>
+                    {/* Remote video or avatar */}
+                    <Box sx={{
+                        flex: 1,
+                        position: 'relative',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'linear-gradient(180deg, #0a0a15 0%, #1a1a2e 100%)',
+                        overflow: 'hidden'
+                    }}>
+                        {remoteStream && remoteStream.getVideoTracks().length > 0 && remoteStream.getVideoTracks()[0].enabled ? (
+                            <video
+                                ref={remoteVideoRef}
+                                autoPlay
+                                playsInline
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'contain'
+                                }}
+                            />
+                        ) : (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                                {/* Пульсирующий круг при вызове */}
+                                <Box sx={{
+                                    position: 'relative',
+                                    '&::before': callStatus === 'calling' ? {
+                                        content: '""',
+                                        position: 'absolute',
+                                        top: -20,
+                                        left: -20,
+                                        right: -20,
+                                        bottom: -20,
+                                        borderRadius: '50%',
+                                        border: '3px solid rgba(76, 175, 80, 0.3)',
+                                        animation: 'pulse-call 2s ease-out infinite'
+                                    } : {},
+                                    '@keyframes pulse-call': {
+                                        '0%': { transform: 'scale(0.9)', opacity: 1 },
+                                        '100%': { transform: 'scale(1.5)', opacity: 0 }
+                                    }
+                                }}>
+                                    <Avatar
+                                        sx={{
+                                            width: 150,
+                                            height: 150,
+                                            background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                                            fontSize: '3.5rem',
+                                            fontWeight: 'bold',
+                                            boxShadow: '0 10px 40px rgba(76, 175, 80, 0.4)'
+                                        }}
+                                    >
+                                        {interlocutorName[0]?.toUpperCase()}
+                                    </Avatar>
+                                </Box>
+                                <Typography
+                                    variant="h4"
+                                    sx={{
+                                        color: '#fff',
+                                        fontWeight: 600,
+                                        textShadow: '0 2px 10px rgba(0,0,0,0.5)'
+                                    }}
+                                >
+                                    {interlocutorName}
+                                </Typography>
+                                {callStatus === 'calling' && (
+                                    <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '1.2rem' }}>
+                                        Вызов...
+                                    </Typography>
+                                )}
+                                {callStatus === 'connected' && (
+                                    <Typography
+                                        sx={{
+                                            color: '#4CAF50',
+                                            fontSize: '2rem',
+                                            fontWeight: 500,
+                                            fontFamily: 'monospace'
+                                        }}
+                                    >
+                                        {formatTime(callDuration)}
+                                    </Typography>
+                                )}
+                            </Box>
+                        )}
+
+                        {/* Local video preview */}
+                        {isVideoEnabled && localStream && localStream.getVideoTracks().length > 0 && (
+                            <Box sx={{
+                                position: 'absolute',
+                                top: 30,
+                                right: 30,
+                                width: 240,
+                                height: 180,
+                                borderRadius: 3,
+                                overflow: 'hidden',
+                                border: '3px solid rgba(76, 175, 80, 0.5)',
+                                backgroundColor: '#111',
+                                boxShadow: '0 10px 40px rgba(0,0,0,0.6)',
+                                zIndex: 10
+                            }}>
+                                <video
+                                    ref={localVideoRef}
+                                    autoPlay
+                                    muted
+                                    playsInline
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                        transform: 'scaleX(-1)'
+                                    }}
+                                />
+                            </Box>
+                        )}
+                    </Box>
+
+                    {/* Controls */}
+                    <Box sx={{
+                        p: 4,
+                        display: 'flex',
+                        gap: 3,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.95) 100%)',
+                        position: 'relative',
+                        zIndex: 20
+                    }}>
+                        <Box sx={{ textAlign: 'center' }}>
+                            <Fab
+                                size="large"
+                                onClick={toggleAudio}
+                                sx={{
+                                    width: 70,
+                                    height: 70,
+                                    background: isAudioEnabled
+                                        ? 'rgba(255,255,255,0.15)'
+                                        : 'linear-gradient(135deg, #EF5350 0%, #C62828 100%)',
+                                    color: '#fff',
+                                    boxShadow: isAudioEnabled
+                                        ? '0 6px 20px rgba(0,0,0,0.3)'
+                                        : '0 6px 20px rgba(239, 83, 80, 0.5)',
+                                    '&:hover': {
+                                        background: isAudioEnabled
+                                            ? 'rgba(255,255,255,0.25)'
+                                            : 'linear-gradient(135deg, #F44336 0%, #D32F2F 100%)',
+                                        transform: 'scale(1.05)'
+                                    },
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                {isAudioEnabled ? <MicIcon sx={{ fontSize: 32 }} /> : <MicOffIcon sx={{ fontSize: 32 }} />}
+                            </Fab>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', mt: 1 }}>
+                                {isAudioEnabled ? 'Микрофон' : 'Выключен'}
+                            </Typography>
+                        </Box>
+
+                        {localStream && localStream.getVideoTracks().length > 0 && (
+                            <Box sx={{ textAlign: 'center' }}>
+                                <Fab
+                                    size="large"
+                                    onClick={toggleVideo}
+                                    sx={{
+                                        width: 70,
+                                        height: 70,
+                                        background: isVideoEnabled
+                                            ? 'rgba(255,255,255,0.15)'
+                                            : 'linear-gradient(135deg, #EF5350 0%, #C62828 100%)',
+                                        color: '#fff',
+                                        boxShadow: isVideoEnabled
+                                            ? '0 6px 20px rgba(0,0,0,0.3)'
+                                            : '0 6px 20px rgba(239, 83, 80, 0.5)',
+                                        '&:hover': {
+                                            background: isVideoEnabled
+                                                ? 'rgba(255,255,255,0.25)'
+                                                : 'linear-gradient(135deg, #F44336 0%, #D32F2F 100%)',
+                                            transform: 'scale(1.05)'
+                                        },
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                >
+                                    {isVideoEnabled ? <VideocamIcon sx={{ fontSize: 32 }} /> : <VideocamOffIcon sx={{ fontSize: 32 }} />}
+                                </Fab>
+                                <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', mt: 1 }}>
+                                    {isVideoEnabled ? 'Камера' : 'Выключена'}
+                                </Typography>
+                            </Box>
+                        )}
+
+                        <Box sx={{ textAlign: 'center' }}>
+                            <Fab
+                                size="large"
+                                onClick={hangup}
+                                sx={{
+                                    width: 70,
+                                    height: 70,
+                                    background: 'linear-gradient(135deg, #EF5350 0%, #C62828 100%)',
+                                    color: '#fff',
+                                    boxShadow: '0 8px 30px rgba(239, 83, 80, 0.6)',
+                                    '&:hover': {
+                                        background: 'linear-gradient(135deg, #F44336 0%, #D32F2F 100%)',
+                                        transform: 'scale(1.05)'
+                                    },
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                <CallEndIcon sx={{ fontSize: 32 }} />
+                            </Fab>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem', mt: 1 }}>
+                                Завершить
+                            </Typography>
+                        </Box>
+                    </Box>
+                </DialogContent>
+            </Dialog>
+
+            {/* Incoming call dialog */}
             <Dialog
                 open={callStatus === 'ringing'}
                 onClose={declineCall}

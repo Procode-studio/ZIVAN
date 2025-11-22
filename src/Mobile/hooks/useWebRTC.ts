@@ -69,8 +69,20 @@ export const useWebRTC = ({ userId, sendWsMessage }: UseWebRTCProps) => {
 
     const createPeerConnection = useCallback(() => {
         try {
+            // Валидация ICE серверов перед использованием
+            const validIceServers = iceServers?.length ? iceServers.filter(server => {
+                if (!server.urls) return false;
+                const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+                // Проверяем что все URL валидны
+                return urls.every(url => {
+                    if (typeof url !== 'string') return false;
+                    // Разрешаем только stun: и turn:/turns:
+                    return /^(stun|turns?):/.test(url);
+                });
+            }) : [];
+
             const config: RTCConfiguration = {
-                iceServers: iceServers?.length ? iceServers : [
+                iceServers: validIceServers.length > 0 ? validIceServers : [
                     { urls: 'stun:stun.l.google.com:19302' }
                 ],
                 iceCandidatePoolSize: 10,
