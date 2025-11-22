@@ -167,12 +167,13 @@ export default function MobileMessenger() {
     // Loading state
     if (messagesLoading) {
         return (
-            <Box sx={{ 
-                height: '100vh',
+            <Box sx={{
+                height: '100dvh',
+                minHeight: '-webkit-fill-available',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: '#212121'
+                background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)'
             }}>
                 <CircularProgress color="secondary" />
             </Box>
@@ -182,12 +183,13 @@ export default function MobileMessenger() {
     // No interlocutor selected
     if (interlocutorId === -1) {
         return (
-            <Box sx={{ 
-                height: '100vh',
+            <Box sx={{
+                height: '100dvh',
+                minHeight: '-webkit-fill-available',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: '#212121'
+                background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)'
             }}>
                 <Typography sx={{ color: '#999' }}>
                     Выберите собеседника
@@ -197,16 +199,19 @@ export default function MobileMessenger() {
     }
 
     return (
-        <Box sx={{ 
-            height: '100vh',
-            width: '100vw',
-            display: 'flex', 
+        <Box sx={{
+            height: '100dvh',
+            minHeight: '-webkit-fill-available',
+            width: '100%',
+            display: 'flex',
             flexDirection: 'column',
-            position: 'fixed',
+            position: 'absolute',
             top: 0,
             left: 0,
+            right: 0,
+            bottom: 0,
             overflow: 'hidden',
-            backgroundColor: '#212121'
+            background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)'
         }}>
             {/* Header */}
             <ChatHeader

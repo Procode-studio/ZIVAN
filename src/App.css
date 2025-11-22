@@ -1,13 +1,58 @@
-body{
-  margin: 0;
-  background: #292929;
-  background-size: cover;
-  background-attachment: fixed;
-  height: 100vh;
-  overflow-y: hidden;
-  position: relative;
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
-h2, h1, a, p, span, h3{
+html {
+  height: 100%;
+  height: -webkit-fill-available;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+  background-attachment: fixed;
+  min-height: 100%;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  overflow-x: hidden;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Мобильная версия */
+.mobile {
+  height: 100dvh;
+  height: -webkit-fill-available;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  overflow: hidden;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+h2, h1, a, p, span, h3 {
   color: white;
+}
+
+/* Убираем синюю подсветку на тач устройствах */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Плавный скролл */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Фикс для iOS Safari */
+@supports (-webkit-touch-callout: none) {
+  .mobile {
+    height: -webkit-fill-available;
+  }
 }

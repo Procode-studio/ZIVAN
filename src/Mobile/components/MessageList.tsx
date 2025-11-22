@@ -12,17 +12,37 @@ interface MessageListProps {
 const MessageList = ({ messages, userId, messagesEndRef }: MessageListProps) => {
     if (messages.length === 0) {
         return (
-            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Typography sx={{ color: '#999' }}>
-                    История пуста
+            <Box sx={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'column',
+                gap: 2
+            }}>
+                <Box
+                    sx={{
+                        width: 80,
+                        height: 80,
+                        borderRadius: '50%',
+                        background: 'rgba(76, 175, 80, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}
+                >
+                    <Typography sx={{ fontSize: 40 }}>💬</Typography>
+                </Box>
+                <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.95rem' }}>
+                    Начните общение!
                 </Typography>
             </Box>
         );
     }
 
     return (
-        <Box 
-            sx={{ 
+        <Box
+            sx={{
                 flex: 1,
                 overflowY: 'auto',
                 overflowX: 'hidden',
@@ -31,44 +51,66 @@ const MessageList = ({ messages, userId, messagesEndRef }: MessageListProps) => 
                 '&::-webkit-scrollbar': {
                     width: '4px'
                 },
+                '&::-webkit-scrollbar-track': {
+                    backgroundColor: 'transparent'
+                },
                 '&::-webkit-scrollbar-thumb': {
-                    backgroundColor: '#888',
-                    borderRadius: '4px'
+                    backgroundColor: 'rgba(76, 175, 80, 0.3)',
+                    borderRadius: '4px',
+                    '&:hover': {
+                        backgroundColor: 'rgba(76, 175, 80, 0.5)'
+                    }
                 }
             }}
         >
-            {messages.map((m, i) => (
-                <Stack
-                    key={i}
-                    direction="row"
-                    sx={{
-                        mb: 1.5,
-                        justifyContent: m.author === userId ? 'flex-end' : 'flex-start',
-                        alignItems: 'flex-end',
-                        gap: 0.5
-                    }}
-                >
-                    <Box
+            {messages.map((m, i) => {
+                const isMe = m.author === userId;
+                return (
+                    <Stack
+                        key={i}
+                        direction="row"
                         sx={{
-                            maxWidth: '75%',
-                            p: 1.5,
-                            borderRadius: 2,
-                            backgroundColor: m.author === userId ? '#4CAF50' : '#424242',
-                            color: '#fff',
-                            wordWrap: 'break-word'
+                            mb: 1.5,
+                            justifyContent: isMe ? 'flex-end' : 'flex-start',
+                            alignItems: 'flex-end',
+                            gap: 0.5
                         }}
                     >
-                        <Typography variant="body2">
-                            {m.text}
-                        </Typography>
-                    </Box>
-                    {m.author === userId && (
-                        m.is_read ? 
-                            <DoneAllIcon sx={{ fontSize: 14, color: '#4CAF50' }} /> : 
-                            <CheckIcon sx={{ fontSize: 14, color: '#999' }} />
-                    )}
-                </Stack>
-            ))}
+                        <Box
+                            sx={{
+                                maxWidth: '78%',
+                                p: '10px 14px',
+                                borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                                background: isMe
+                                    ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'
+                                    : 'rgba(255,255,255,0.08)',
+                                color: '#fff',
+                                wordWrap: 'break-word',
+                                boxShadow: isMe
+                                    ? '0 2px 12px rgba(76, 175, 80, 0.3)'
+                                    : '0 2px 8px rgba(0,0,0,0.2)',
+                                border: isMe ? 'none' : '1px solid rgba(255,255,255,0.08)'
+                            }}
+                        >
+                            <Typography
+                                variant="body2"
+                                sx={{
+                                    fontSize: '0.95rem',
+                                    lineHeight: 1.4,
+                                    letterSpacing: '0.2px'
+                                }}
+                            >
+                                {m.text}
+                            </Typography>
+                        </Box>
+                        {isMe && (
+                            m.is_read ?
+                                <DoneAllIcon sx={{ fontSize: 16, color: '#4CAF50', filter: 'drop-shadow(0 0 4px rgba(76, 175, 80, 0.5))' }} /> :
+                                <CheckIcon sx={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }} />
+                        )}
+                    </Stack>
+                );
+            })}
             <div ref={messagesEndRef} />
         </Box>
     );
