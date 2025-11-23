@@ -20,13 +20,32 @@ import MicOffIcon from '@mui/icons-material/MicOff';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff';
 import CheckIcon from '@mui/icons-material/Check';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
-import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import './messenger.css';
 import { MessengerInterlocutorId } from "../pages/MessengerPage";
 import { UserInfoContext } from "../../App";
 import axios from "axios";
 import { getServerUrl, getWsUrl } from '../../config/serverConfig';
 import { getTurnServers, validateIceServers } from '../../config/turnConfig';
+import './messenger.css';
+
+// Унифицированные цвета
+const theme = {
+    bg: {
+        primary: '#0f0f1a',
+        secondary: '#1a1a2e',
+        tertiary: '#16213e',
+        message: {
+            own: '#4CAF50',
+            other: 'rgba(255,255,255,0.1)'
+        }
+    },
+    text: {
+        primary: '#ffffff',
+        secondary: 'rgba(255,255,255,0.7)',
+        muted: 'rgba(255,255,255,0.5)'
+    },
+    accent: '#4CAF50',
+    border: 'rgba(76, 175, 80, 0.2)'
+};
 
 interface ExtendedMessage extends MessageType {
     is_read: boolean;
@@ -735,148 +754,112 @@ export default function Messenger() {
     };
 
     return (
-        <div id="messenger">
+        <Box sx={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100vh',
+            background: `linear-gradient(180deg, ${theme.bg.secondary} 0%, ${theme.bg.tertiary} 100%)`,
+            overflow: 'hidden'
+        }}>
+            {/* Header */}
             {isLoaded && interlocutorId !== -1 && (
                 <Box sx={{
                     p: 2,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    background: 'linear-gradient(180deg, rgba(22,33,62,1) 0%, rgba(26,26,46,0.95) 100%)',
-                    borderBottom: '1px solid rgba(76, 175, 80, 0.2)',
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+                    background: theme.bg.primary,
+                    borderBottom: `1px solid ${theme.border}`
                 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <Box sx={{ position: 'relative' }}>
-                            <Avatar
-                                sx={{
-                                    width: 48,
-                                    height: 48,
-                                    background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
-                                    fontSize: '1.2rem',
-                                    fontWeight: 'bold',
-                                    boxShadow: '0 2px 10px rgba(76, 175, 80, 0.3)'
-                                }}
-                            >
+                            <Avatar sx={{
+                                width: 44,
+                                height: 44,
+                                bgcolor: theme.accent,
+                                fontSize: '1.1rem',
+                                fontWeight: 600
+                            }}>
                                 {interlocutorName[0]?.toUpperCase() || '?'}
                             </Avatar>
                             {interlocutorOnline && callStatus === 'idle' && !isTyping && (
-                                <Box
-                                    sx={{
-                                        position: 'absolute',
-                                        bottom: 0,
-                                        right: 0,
-                                        width: 14,
-                                        height: 14,
-                                        backgroundColor: '#4CAF50',
-                                        borderRadius: '50%',
-                                        border: '3px solid #1a1a2e',
-                                        boxShadow: '0 0 8px #4CAF50'
-                                    }}
-                                />
+                                <Box sx={{
+                                    position: 'absolute',
+                                    bottom: 0,
+                                    right: 0,
+                                    width: 12,
+                                    height: 12,
+                                    bgcolor: theme.accent,
+                                    borderRadius: '50%',
+                                    border: `2px solid ${theme.bg.primary}`
+                                }} />
                             )}
                         </Box>
                         <Box>
-                            <Typography sx={{ fontWeight: 600, color: '#fff', fontSize: '1.1rem' }}>
+                            <Typography sx={{ fontWeight: 600, color: theme.text.primary, fontSize: '1rem' }}>
                                 {interlocutorName}
                             </Typography>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <FiberManualRecordIcon
-                                    sx={{
-                                        fontSize: 10,
-                                        color: getStatusColor(),
-                                        animation: (callStatus === 'calling' || isTyping) ? 'pulse 1.5s infinite' : 'none',
-                                        '@keyframes pulse': {
-                                            '0%, 100%': { opacity: 1 },
-                                            '50%': { opacity: 0.4 }
-                                        }
-                                    }}
-                                />
-                                <Typography sx={{ color: getStatusColor(), fontSize: '0.85rem', fontWeight: 500 }}>
-                                    {getStatusText()}
-                                </Typography>
-                            </Box>
+                            <Typography sx={{ color: getStatusColor(), fontSize: '0.8rem' }}>
+                                {getStatusText()}
+                            </Typography>
                         </Box>
                     </Box>
-                    <Box sx={{ display: 'flex', gap: 1.5 }}>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
                         {callStatus === 'idle' ? (
                             <>
-                                <IconButton
-                                    onClick={() => startCall(false)}
-                                    sx={{
-                                        color: '#4CAF50',
-                                        backgroundColor: 'rgba(76, 175, 80, 0.15)',
-                                        '&:hover': {
-                                            backgroundColor: 'rgba(76, 175, 80, 0.3)',
-                                            transform: 'scale(1.1)'
-                                        },
-                                        transition: 'all 0.2s ease'
-                                    }}
-                                >
+                                <IconButton onClick={() => startCall(false)} sx={{ color: theme.accent }}>
                                     <PhoneIcon />
                                 </IconButton>
-                                <IconButton
-                                    onClick={() => startCall(true)}
-                                    sx={{
-                                        color: '#4CAF50',
-                                        backgroundColor: 'rgba(76, 175, 80, 0.15)',
-                                        '&:hover': {
-                                            backgroundColor: 'rgba(76, 175, 80, 0.3)',
-                                            transform: 'scale(1.1)'
-                                        },
-                                        transition: 'all 0.2s ease'
-                                    }}
-                                >
+                                <IconButton onClick={() => startCall(true)} sx={{ color: theme.accent }}>
                                     <VideocamIcon />
                                 </IconButton>
                             </>
-                        ) : (callStatus !== 'ringing' && (
-                            <Fab
-                                color="error"
-                                size="small"
-                                onClick={hangup}
-                                sx={{ boxShadow: '0 4px 15px rgba(239, 83, 80, 0.4)' }}
-                            >
+                        ) : callStatus !== 'ringing' && (
+                            <Fab color="error" size="small" onClick={hangup}>
                                 <CallEndIcon />
                             </Fab>
-                        ))}
+                        )}
                     </Box>
                 </Box>
             )}
 
+            {/* Content */}
             {!isLoaded ? (
-                <section id='loading' style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <CircularProgress color="secondary"/>
-                </section>
+                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <CircularProgress sx={{ color: theme.accent }} />
+                </Box>
             ) : interlocutorId === -1 ? (
-                <span id="choose-interlocutor-text" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    Выберите собеседника
-                </span>
+                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography sx={{ color: theme.text.muted, fontSize: '1.2rem' }}>
+                        Выберите собеседника
+                    </Typography>
+                </Box>
             ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-                    <section id='messages' ref={messagesBlockRef} style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    {/* Messages */}
+                    <Box
+                        ref={messagesBlockRef}
+                        sx={{
+                            flex: 1,
+                            overflowY: 'auto',
+                            p: 2,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 1
+                        }}
+                    >
                         {messages.length === 0 ? (
                             <Box sx={{
+                                flex: 1,
                                 display: 'flex',
                                 flexDirection: 'column',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                height: '100%',
                                 gap: 2
                             }}>
-                                <Box sx={{
-                                    width: 100,
-                                    height: 100,
-                                    borderRadius: '50%',
-                                    background: 'rgba(76, 175, 80, 0.1)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}>
-                                    <Typography sx={{ fontSize: 50 }}>💬</Typography>
-                                </Box>
-                                <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '1.1rem' }}>
-                                    Начните общение!
+                                <Typography sx={{ color: theme.text.muted }}>
+                                    Начните общение
                                 </Typography>
                             </Box>
                         ) : (
@@ -886,7 +869,6 @@ export default function Messenger() {
                                     <Box
                                         key={i}
                                         sx={{
-                                            mb: 1.5,
                                             display: 'flex',
                                             alignItems: 'flex-end',
                                             gap: 0.5,
@@ -894,33 +876,27 @@ export default function Messenger() {
                                         }}
                                     >
                                         <Box sx={{
-                                            maxWidth: '60%',
+                                            maxWidth: '65%',
                                             p: '10px 14px',
-                                            borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                                            background: isMe
-                                                ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'
-                                                : 'rgba(255,255,255,0.08)',
-                                            color: '#fff',
-                                            wordWrap: 'break-word',
-                                            boxShadow: isMe
-                                                ? '0 2px 12px rgba(76, 175, 80, 0.3)'
-                                                : '0 2px 8px rgba(0,0,0,0.2)',
-                                            border: isMe ? 'none' : '1px solid rgba(255,255,255,0.08)'
+                                            borderRadius: isMe ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                                            bgcolor: isMe ? theme.bg.message.own : theme.bg.message.other,
+                                            color: theme.text.primary,
+                                            wordBreak: 'break-word'
                                         }}>
-                                            <Typography variant="body2" sx={{ fontSize: '0.95rem', lineHeight: 1.4 }}>
+                                            <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.4 }}>
                                                 {m.text}
                                             </Typography>
                                         </Box>
                                         {isMe && (
                                             m.is_read ?
-                                                <DoneAllIcon sx={{ fontSize: 16, color: '#4CAF50', filter: 'drop-shadow(0 0 4px rgba(76, 175, 80, 0.5))' }} /> :
-                                                <CheckIcon sx={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }} />
+                                                <DoneAllIcon sx={{ fontSize: 14, color: theme.accent }} /> :
+                                                <CheckIcon sx={{ fontSize: 14, color: theme.text.muted }} />
                                         )}
                                     </Box>
                                 );
                             })
                         )}
-                    </section>
+                    </Box>
                 </Box>
             )}
 
@@ -1274,85 +1250,58 @@ export default function Messenger() {
 
             <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
 
-            <Box sx={{
-                p: 2,
-                display: 'flex',
-                gap: 2,
-                alignItems: 'flex-end',
-                background: 'linear-gradient(180deg, rgba(26,26,46,0.95) 0%, rgba(22,33,62,1) 100%)',
-                borderTop: '1px solid rgba(76, 175, 80, 0.3)',
-                boxShadow: '0 -4px 20px rgba(0,0,0,0.3)'
-            }}>
-                <TextField
-                    fullWidth
-                    color="secondary"
-                    multiline
-                    maxRows={4}
-                    placeholder="Сообщение..."
-                    inputRef={inputRef}
-                    disabled={interlocutorId === -1}
-                    onChange={sendTyping}
-                    onKeyPress={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            sendMessage();
-                        }
-                    }}
-                    sx={{
-                        '& .MuiOutlinedInput-root': {
+            {/* Input */}
+            {interlocutorId !== -1 && isLoaded && (
+                <Box sx={{
+                    p: 2,
+                    display: 'flex',
+                    gap: 1.5,
+                    alignItems: 'flex-end',
+                    background: theme.bg.primary,
+                    borderTop: `1px solid ${theme.border}`
+                }}>
+                    <TextField
+                        fullWidth
+                        multiline
+                        maxRows={4}
+                        placeholder="Сообщение..."
+                        inputRef={inputRef}
+                        onChange={sendTyping}
+                        onKeyPress={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                sendMessage();
+                            }
+                        }}
+                        sx={{
+                            '& .MuiOutlinedInput-root': {
+                                color: theme.text.primary,
+                                bgcolor: 'rgba(255,255,255,0.05)',
+                                borderRadius: '12px',
+                                '& fieldset': { borderColor: theme.border },
+                                '&:hover fieldset': { borderColor: theme.accent },
+                                '&.Mui-focused fieldset': { borderColor: theme.accent }
+                            },
+                            '& .MuiOutlinedInput-input': {
+                                p: '12px 16px',
+                                '&::placeholder': { color: theme.text.muted, opacity: 1 }
+                            }
+                        }}
+                    />
+                    <IconButton
+                        onClick={sendMessage}
+                        sx={{
+                            width: 44,
+                            height: 44,
+                            bgcolor: theme.accent,
                             color: '#fff',
-                            backgroundColor: 'rgba(255,255,255,0.08)',
-                            borderRadius: '20px',
-                            fontSize: '15px',
-                            '& fieldset': {
-                                borderColor: 'rgba(76, 175, 80, 0.3)',
-                                borderWidth: '1px'
-                            },
-                            '&:hover fieldset': {
-                                borderColor: 'rgba(76, 175, 80, 0.5)'
-                            },
-                            '&.Mui-focused fieldset': {
-                                borderColor: '#4CAF50',
-                                borderWidth: '2px'
-                            }
-                        },
-                        '& .MuiOutlinedInput-input': {
-                            padding: '10px 16px',
-                            '&::placeholder': {
-                                color: 'rgba(255,255,255,0.5)',
-                                opacity: 1
-                            }
-                        }
-                    }}
-                />
-                <IconButton
-                    onClick={sendMessage}
-                    disabled={interlocutorId === -1}
-                    sx={{
-                        width: 48,
-                        height: 48,
-                        background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
-                        color: '#fff',
-                        boxShadow: '0 4px 15px rgba(76, 175, 80, 0.4)',
-                        transition: 'all 0.2s ease',
-                        '&:hover': {
-                            background: 'linear-gradient(135deg, #5CBF60 0%, #4CAF50 100%)',
-                            transform: 'scale(1.05)',
-                            boxShadow: '0 6px 20px rgba(76, 175, 80, 0.5)'
-                        },
-                        '&:active': {
-                            transform: 'scale(0.95)'
-                        },
-                        '&:disabled': {
-                            background: 'rgba(255,255,255,0.1)',
-                            color: 'rgba(255,255,255,0.3)',
-                            boxShadow: 'none'
-                        }
-                    }}
-                >
-                    <SendIcon sx={{ fontSize: 22 }} />
-                </IconButton>
-            </Box>
-        </div>
+                            '&:hover': { bgcolor: '#45a049' }
+                        }}
+                    >
+                        <SendIcon />
+                    </IconButton>
+                </Box>
+            )}
+        </Box>
     );
 }
