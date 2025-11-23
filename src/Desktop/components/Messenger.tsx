@@ -93,6 +93,7 @@ export default function Messenger() {
     const hangupProcessingRef = useRef(false);
     const [callDuration, setCallDuration] = useState(0);
     const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const hangupRef = useRef<() => void>();
 
     useEffect(() => {
         const loadTurnServers = async () => {
@@ -271,7 +272,7 @@ export default function Messenger() {
                     setCallStatus('connected');
                 } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
                     alert('Не удалось установить соединение');
-                    hangup();
+                    hangupRef.current?.();
                 }
             };
 
@@ -342,6 +343,11 @@ export default function Messenger() {
             hangupProcessingRef.current = false;
         }, 500);
     }, [user_id, localStream]);
+
+    // Обновляем ref при изменении hangup
+    useEffect(() => {
+        hangupRef.current = hangup;
+    }, [hangup]);
 
     const startCall = useCallback(async (withVideo: boolean) => {
         if (interlocutorId === -1) return;
@@ -473,6 +479,18 @@ export default function Messenger() {
             await pc.setLocalDescription(answer);
 
             console.log('[Call] Sending answer');
+
+            // Ждём подключения WS до 5 секунд
+            let attempts = 0;
+            while ((!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) && attempts < 50) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
+
+            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+                throw new Error('WebSocket not connected');
+            }
+
             wsRef.current.send(JSON.stringify({
                 type: 'answer',
                 answer: pc.localDescription!.toJSON(),
@@ -481,6 +499,11 @@ export default function Messenger() {
         } catch (err) {
             console.error('[Call] Answer call error:', err);
             setCallStatus('failed');
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(t => t.stop());
+                localStreamRef.current = null;
+            }
+            setLocalStream(null);
             alert('Не удалось ответить на звонок');
             setTimeout(() => setCallStatus('idle'), 2000);
         }
@@ -687,7 +710,7 @@ export default function Messenger() {
                             }
                         } else if (type === 'hangup' && data.author !== user_id) {
                             console.log('[Call] Received hangup');
-                            hangup();
+                            hangupRef.current?.();
                         }
                     } catch (e) {
                         console.error('[WS] Message parsing error:', e);
@@ -740,7 +763,7 @@ export default function Messenger() {
                 wsRef.current = null;
             }
         };
-    }, [user_id, interlocutorId, hangup]);
+    }, [user_id, interlocutorId]);
 
     const getStatusText = () => {
         if (callStatus === 'calling') return 'Вызов...';
