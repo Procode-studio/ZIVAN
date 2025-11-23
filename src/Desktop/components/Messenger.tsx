@@ -432,7 +432,6 @@ export default function Messenger() {
 
         try {
             console.log('[Call] Answering call, video:', withVideo);
-            setCallStatus('connected');
 
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
@@ -674,12 +673,14 @@ export default function Messenger() {
                             }
                         } else if (type === 'ice-candidate' && data.author !== user_id) {
                             console.log('[Call] Received ICE candidate');
-                            if (peerConnectionRef.current && data.candidate) {
-                                if (remoteDescriptionSetRef.current) {
+                            if (data.candidate) {
+                                if (peerConnectionRef.current && remoteDescriptionSetRef.current) {
+                                    // PC существует и remote description установлен - добавляем сразу
                                     peerConnectionRef.current.addIceCandidate(
                                         new RTCIceCandidate(data.candidate)
                                     ).catch(err => console.error('[RTC] Failed to add ICE candidate:', err));
                                 } else {
+                                    // PC еще не создан или remote description не установлен - сохраняем в очередь
                                     console.log('[RTC] Queueing ICE candidate');
                                     pendingRemoteCandidatesRef.current.push(data.candidate);
                                 }
