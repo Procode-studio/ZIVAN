@@ -140,7 +140,11 @@ export const useWebSocket = ({ userId, interlocutorId, onMessage }: UseWebSocket
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data) as WebSocketMessage;
-                        console.log('[WS] Received:', data.type, 'from:', data.author);
+
+                        // Логируем только важные события (не ping/pong/typing/read)
+                        if (!['ping', 'pong', 'typing', 'read'].includes(data.type)) {
+                            console.log('[WS] Received:', data.type, 'from:', data.author);
+                        }
 
                         if (data.author !== userId) {
                             lastActivityRef.current = Date.now();

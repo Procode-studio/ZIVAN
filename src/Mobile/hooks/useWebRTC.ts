@@ -276,8 +276,15 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
     }, [userId, createPeerConnection, sendWsMessage, stopAllTracks]);
 
     const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
+        // Защита от двойного вызова
+        if (callStatus !== CallStatus.RINGING) {
+            console.log('[Call] Ignoring answer - not ringing');
+            return;
+        }
+
         try {
             console.log('[Call] Answering call, video:', withVideo);
+            setCallStatus(CallStatus.CALLING); // Сразу меняем статус
 
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
@@ -287,7 +294,6 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             setLocalStream(stream);
             setIsVideoEnabled(withVideo);
             setIsAudioEnabled(true);
-            setCallStatus(CallStatus.CONNECTED);
 
             const pc = createPeerConnection();
             stream.getTracks().forEach(track => {
@@ -346,7 +352,7 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             alert('Не удалось ответить на звонок');
             setTimeout(() => setCallStatus(CallStatus.IDLE), 2000);
         }
-    }, [userId, createPeerConnection, sendWsMessage, sendWsMessageAsync, stopAllTracks]);
+    }, [userId, createPeerConnection, sendWsMessage, sendWsMessageAsync, stopAllTracks, callStatus]);
 
     const toggleAudio = useCallback(() => {
         const stream = localStreamRef.current || localStream;
@@ -413,7 +419,6 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
                             new RTCIceCandidate(data.candidate)
                         ).catch(err => console.error('[WebRTC] Add candidate failed:', err));
                     } else {
-                        console.log('[RTC] Queueing ICE candidate');
                         pendingCandidatesRef.current.push(data.candidate);
                     }
                 }

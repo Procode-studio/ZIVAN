@@ -249,20 +249,7 @@ export default function Messenger() {
             pc.ontrack = (e) => {
                 console.log('[RTC] Received remote track:', e.track.kind);
                 if (e.streams && e.streams[0]) {
-                    const stream = e.streams[0];
-                    setRemoteStream(stream);
-
-                    setTimeout(() => {
-                        if (remoteVideoRef.current) {
-                            remoteVideoRef.current.srcObject = stream;
-                            remoteVideoRef.current.play().catch(err => console.error('[RTC] Video play error:', err));
-                        }
-                        if (remoteAudioRef.current) {
-                            remoteAudioRef.current.srcObject = stream;
-                            remoteAudioRef.current.muted = false;
-                            remoteAudioRef.current.play().catch(err => console.error('[RTC] Audio play error:', err));
-                        }
-                    }, 100);
+                    setRemoteStream(e.streams[0]);
                 }
             };
 
@@ -349,6 +336,48 @@ export default function Messenger() {
         hangupRef.current = hangup;
     }, [hangup]);
 
+    // Устанавливаем remoteStream на video/audio элементы
+    useEffect(() => {
+        if (!remoteStream) {
+            // Очищаем при отсутствии stream
+            if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+            if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+            return;
+        }
+
+        if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStream) {
+            remoteVideoRef.current.srcObject = remoteStream;
+            remoteVideoRef.current.play().catch(err => {
+                // Игнорируем ошибку если она из-за прерывания
+                if (err.name !== 'AbortError') {
+                    console.error('[RTC] Video play error:', err);
+                }
+            });
+        }
+
+        if (remoteAudioRef.current && remoteAudioRef.current.srcObject !== remoteStream) {
+            remoteAudioRef.current.srcObject = remoteStream;
+            remoteAudioRef.current.muted = false;
+            remoteAudioRef.current.play().catch(err => {
+                if (err.name !== 'AbortError') {
+                    console.error('[RTC] Audio play error:', err);
+                }
+            });
+        }
+    }, [remoteStream]);
+
+    // Останавливаем треки если нет активного звонка
+    useEffect(() => {
+        if (callStatus === 'idle' && localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach(track => {
+                console.log('[Call] Stopping track (idle):', track.kind);
+                track.stop();
+            });
+            localStreamRef.current = null;
+            setLocalStream(null);
+        }
+    }, [callStatus]);
+
     const startCall = useCallback(async (withVideo: boolean) => {
         if (interlocutorId === -1) return;
 
@@ -434,10 +463,13 @@ export default function Messenger() {
     }, [interlocutorId, user_id, createPeerConnection, localStream]);
 
     const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
+        // Защита от двойного вызова
+        if (callStatus !== 'ringing') return;
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
         try {
             console.log('[Call] Answering call, video:', withVideo);
+            setCallStatus('calling'); // Сразу меняем статус
 
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
@@ -507,7 +539,7 @@ export default function Messenger() {
             alert('Не удалось ответить на звонок');
             setTimeout(() => setCallStatus('idle'), 2000);
         }
-    }, [user_id, createPeerConnection]);
+    }, [user_id, createPeerConnection, callStatus]);
 
     const toggleAudio = useCallback(() => {
         if (!localStream) return;
@@ -619,7 +651,10 @@ export default function Messenger() {
                         const data = JSON.parse(event.data);
                         const type = data.type || 'message';
 
-                        console.log('[WS] Received:', type, 'from:', data.author);
+                        // Логируем только важные события (не ping/pong/typing)
+                        if (!['ping', 'pong', 'typing', 'read'].includes(type)) {
+                            console.log('[WS] Received:', type, 'from:', data.author);
+                        }
 
                         // Обновляем время активности при любом сообщении от собеседника
                         if (data.author !== user_id) {
@@ -704,7 +739,6 @@ export default function Messenger() {
                                     ).catch(err => console.error('[RTC] Failed to add ICE candidate:', err));
                                 } else {
                                     // PC еще не создан или remote description не установлен - сохраняем в очередь
-                                    console.log('[RTC] Queueing ICE candidate');
                                     pendingRemoteCandidatesRef.current.push(data.candidate);
                                 }
                             }
@@ -734,6 +768,12 @@ export default function Messenger() {
                     if (activityCheckIntervalRef.current) {
                         clearInterval(activityCheckIntervalRef.current);
                         activityCheckIntervalRef.current = null;
+                    }
+
+                    // Завершаем активный звонок при отключении WS
+                    if (callStatus !== 'idle' && hangupRef.current) {
+                        console.log('[WS] Terminating call due to disconnect');
+                        hangupRef.current();
                     }
 
                     if (!isIntentionallyClosed) {
