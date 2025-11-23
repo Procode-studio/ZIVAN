@@ -95,6 +95,7 @@ export default function MobileMessenger() {
         interlocutorOnline,
         isTyping,
         sendMessage: sendWsMessage,
+        sendMessageAsync: sendWsMessageAsync,
         sendTyping,
         wsRef
     } = useWebSocket({
@@ -127,7 +128,8 @@ export default function MobileMessenger() {
         declineCall
     } = useWebRTC({
         userId,
-        sendWsMessage
+        sendWsMessage,
+        sendWsMessageAsync
     });
 
     // Обновляем ref при изменении handleSignalingMessage

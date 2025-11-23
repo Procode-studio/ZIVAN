@@ -23,28 +23,56 @@ export const useWebSocket = ({ userId, interlocutorId, onMessage }: UseWebSocket
     const activityCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastTypingSentRef = useRef<number>(0);
+    const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const sendMessage = useCallback((message: WebSocketMessage) => {
+    // Используем ref для callback чтобы избежать переподключений
+    const onMessageRef = useRef(onMessage);
+    onMessageRef.current = onMessage;
+
+    // Отправка сообщения с ожиданием подключения
+    const sendMessage = useCallback((message: WebSocketMessage): boolean => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(message));
-            return true;
+            try {
+                wsRef.current.send(JSON.stringify(message));
+                return true;
+            } catch (e) {
+                console.error('[WS] Send failed:', e);
+                return false;
+            }
         }
+        console.warn('[WS] Not connected, message not sent');
         return false;
     }, []);
 
-    const updateActivity = useCallback(() => {
-        lastActivityRef.current = Date.now();
-        setInterlocutorOnline(true);
+    // Асинхронная отправка с ожиданием подключения
+    const sendMessageAsync = useCallback(async (message: WebSocketMessage, maxWait = 3000): Promise<boolean> => {
+        const startTime = Date.now();
+
+        while (Date.now() - startTime < maxWait) {
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+                try {
+                    wsRef.current.send(JSON.stringify(message));
+                    return true;
+                } catch (e) {
+                    console.error('[WS] Send failed:', e);
+                    return false;
+                }
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        console.warn('[WS] Timeout waiting for connection');
+        return false;
     }, []);
 
     const sendTyping = useCallback(() => {
         const now = Date.now();
-        // Отправляем typing не чаще чем раз в 2 секунды
-        if (now - lastTypingSentRef.current > 2000 && wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'typing', author: userId }));
-            lastTypingSentRef.current = now;
+        if (now - lastTypingSentRef.current > 2000) {
+            if (sendMessage({ type: 'typing', author: userId })) {
+                lastTypingSentRef.current = now;
+            }
         }
-    }, [userId]);
+    }, [userId, sendMessage]);
 
     useEffect(() => {
         if (interlocutorId === -1 || userId === -1) {
@@ -62,8 +90,31 @@ export const useWebSocket = ({ userId, interlocutorId, onMessage }: UseWebSocket
         const wsUrl = `${getWsUrl()}/me/ws/${id1}/${id2}?current_user=${userId}`;
         let isIntentionallyClosed = false;
 
+        const cleanup = () => {
+            if (pingIntervalRef.current) {
+                clearInterval(pingIntervalRef.current);
+                pingIntervalRef.current = null;
+            }
+            if (activityCheckRef.current) {
+                clearInterval(activityCheckRef.current);
+                activityCheckRef.current = null;
+            }
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+                reconnectTimeoutRef.current = null;
+            }
+        };
+
         const connect = () => {
+            if (isIntentionallyClosed) return;
+
+            // Не создаем новое соединение если уже есть открытое
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+                return;
+            }
+
             try {
+                console.log('[WS] Connecting to:', wsUrl);
                 const ws = new WebSocket(wsUrl);
 
                 ws.onopen = () => {
@@ -72,81 +123,72 @@ export const useWebSocket = ({ userId, interlocutorId, onMessage }: UseWebSocket
                     setIsConnected(true);
                     lastActivityRef.current = Date.now();
 
-                    // Ping interval
                     pingIntervalRef.current = setInterval(() => {
                         if (ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({ type: 'ping', author: userId }));
                         }
                     }, 5000);
 
-                    // Activity check
                     activityCheckRef.current = setInterval(() => {
                         const timeSinceLastActivity = Date.now() - lastActivityRef.current;
                         setInterlocutorOnline(timeSinceLastActivity < 15000);
                     }, 3000);
 
-                    // Send read notification
                     ws.send(JSON.stringify({ type: 'read', author: userId }));
                 };
 
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data) as WebSocketMessage;
+                        console.log('[WS] Received:', data.type, 'from:', data.author);
 
                         if (data.author !== userId) {
-                            updateActivity();
+                            lastActivityRef.current = Date.now();
+                            setInterlocutorOnline(true);
                         }
 
                         if (data.type === 'ping' && data.author !== userId) {
                             ws.send(JSON.stringify({ type: 'pong', author: userId }));
                         } else if (data.type === 'typing' && data.author !== userId) {
-                            // Показываем индикатор печати
                             setIsTyping(true);
                             if (typingTimeoutRef.current) {
                                 clearTimeout(typingTimeoutRef.current);
                             }
-                            typingTimeoutRef.current = setTimeout(() => {
-                                setIsTyping(false);
-                            }, 3000);
+                            typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 3000);
                         }
 
-                        onMessage(data);
+                        // Используем ref чтобы всегда иметь актуальный callback
+                        onMessageRef.current(data);
                     } catch (e) {
-                        console.error('[WS] Failed to parse message:', e);
+                        console.error('[WS] Parse error:', e);
                     }
                 };
 
                 ws.onerror = () => {
                     console.error('[WS] Error');
-                    setIsConnected(false);
-                    setInterlocutorOnline(false);
                 };
 
                 ws.onclose = () => {
-                    console.log('[WS] Disconnected');
+                    console.log('[WS] Connection closed');
+
+                    // Очищаем ref только если это текущее соединение
                     if (wsRef.current === ws) {
                         wsRef.current = null;
+                        setIsConnected(false);
                     }
-                    setIsConnected(false);
-                    setInterlocutorOnline(false);
 
-                    if (pingIntervalRef.current) {
-                        clearInterval(pingIntervalRef.current);
-                        pingIntervalRef.current = null;
-                    }
-                    if (activityCheckRef.current) {
-                        clearInterval(activityCheckRef.current);
-                        activityCheckRef.current = null;
-                    }
+                    cleanup();
 
                     if (!isIntentionallyClosed) {
-                        setTimeout(connect, 3000);
+                        console.log('[WS] Reconnecting in 2s...');
+                        reconnectTimeoutRef.current = setTimeout(connect, 2000);
                     }
                 };
             } catch (err) {
-                console.error('[WS] Connection failed:', err);
-                setIsConnected(false);
-                setInterlocutorOnline(false);
+                console.error('[WS] Connection error:', err);
+                if (!isIntentionallyClosed) {
+                    reconnectTimeoutRef.current = setTimeout(connect, 2000);
+                }
             }
         };
 
@@ -154,24 +196,25 @@ export const useWebSocket = ({ userId, interlocutorId, onMessage }: UseWebSocket
 
         return () => {
             isIntentionallyClosed = true;
-            if (pingIntervalRef.current) {
-                clearInterval(pingIntervalRef.current);
-            }
-            if (activityCheckRef.current) {
-                clearInterval(activityCheckRef.current);
+            cleanup();
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
             }
             if (wsRef.current) {
                 wsRef.current.close();
                 wsRef.current = null;
             }
+            setIsConnected(false);
+            setInterlocutorOnline(false);
         };
-    }, [userId, interlocutorId, onMessage, updateActivity]);
+    }, [userId, interlocutorId]); // Убрали onMessage из зависимостей!
 
     return {
         isConnected,
         interlocutorOnline,
         isTyping,
         sendMessage,
+        sendMessageAsync,
         sendTyping,
         wsRef
     };

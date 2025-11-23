@@ -85,6 +85,7 @@ export default function Messenger() {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const remoteAudioRef = useRef<HTMLAudioElement>(null);
+    const localStreamRef = useRef<MediaStream | null>(null);
     const [iceServers, setIceServers] = useState<RTCIceServer[]>([]);
     const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
     const pendingRemoteCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -100,11 +101,24 @@ export default function Messenger() {
                 const validated = validateIceServers(servers);
                 setIceServers(validated);
             } catch (err) {
-                console.error('[Setup] Failed to load TURN servers:', err);
                 setIceServers([{ urls: 'stun:stun.l.google.com:19302' }]);
             }
         };
         loadTurnServers();
+    }, []);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => track.stop());
+                localStreamRef.current = null;
+            }
+            if (peerConnectionRef.current) {
+                peerConnectionRef.current.close();
+                peerConnectionRef.current = null;
+            }
+        };
     }, []);
 
     useEffect(() => {
@@ -284,15 +298,26 @@ export default function Messenger() {
 
         console.log('[Call] Hanging up');
 
+        // Закрываем PeerConnection
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
         }
 
+        // Останавливаем все треки через ref (гарантированно)
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach(track => {
+                console.log('[Call] Stopping track:', track.kind);
+                track.stop();
+            });
+            localStreamRef.current = null;
+        }
+
+        // Также проверяем state
         if (localStream) {
             localStream.getTracks().forEach(t => t.stop());
-            setLocalStream(null);
         }
+        setLocalStream(null);
 
         setRemoteStream(null);
         if (localVideoRef.current) localVideoRef.current.srcObject = null;
@@ -315,7 +340,7 @@ export default function Messenger() {
 
         setTimeout(() => {
             hangupProcessingRef.current = false;
-        }, 1000);
+        }, 500);
     }, [user_id, localStream]);
 
     const startCall = useCallback(async (withVideo: boolean) => {
@@ -348,7 +373,7 @@ export default function Messenger() {
                 };
 
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
+            localStreamRef.current = stream;
             setLocalStream(stream);
             setIsVideoEnabled(withVideo);
             setIsAudioEnabled(true);
@@ -413,7 +438,7 @@ export default function Messenger() {
                 audio: true,
                 video: withVideo
             });
-
+            localStreamRef.current = stream;
             setLocalStream(stream);
             setIsVideoEnabled(withVideo);
             setIsAudioEnabled(true);
