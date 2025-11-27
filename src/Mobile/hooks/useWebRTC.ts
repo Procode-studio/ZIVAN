@@ -239,16 +239,31 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             await pc.setLocalDescription(offer);
 
             console.log('[Call] Sending offer');
-            const sent = sendWsMessage({
+            const message = {
                 type: 'offer',
                 offer: pc.localDescription!.toJSON(),
                 author: userId,
                 video: withVideo
-            });
+            };
+
+            // Всегда используем async версию с ожиданием до 10 секунд
+            let sent = false;
+            if (sendWsMessageAsync) {
+                sent = await sendWsMessageAsync(message, 10000);
+            } else {
+                // Fallback: ждем до 10 секунд
+                for (let i = 0; i < 100; i++) {
+                    sent = sendWsMessage(message);
+                    if (sent) break;
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
 
             if (!sent) {
-                throw new Error('Failed to send offer');
+                throw new Error('Failed to send offer - WebSocket not ready after 10s');
             }
+
+            console.log('[Call] Offer sent successfully');
         } catch (err) {
             console.error('[WebRTC] Start call failed:', err);
             setCallStatus(CallStatus.FAILED);
@@ -303,17 +318,21 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
 
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+
+            console.log('[Call] Sending answer');
             const message = {
                 type: 'answer',
                 answer: pc.localDescription!.toJSON(),
                 author: userId
             };
 
+            // Всегда используем async версию с ожиданием до 10 секунд
             let sent = false;
             if (sendWsMessageAsync) {
-                sent = await sendWsMessageAsync(message, 5000);
+                sent = await sendWsMessageAsync(message, 10000);
             } else {
-                for (let i = 0; i < 30; i++) {
+                // Fallback: ждем до 10 секунд
+                for (let i = 0; i < 100; i++) {
                     sent = sendWsMessage(message);
                     if (sent) break;
                     await new Promise(resolve => setTimeout(resolve, 100));
@@ -321,8 +340,10 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             }
 
             if (!sent) {
-                throw new Error('Failed to send answer');
+                throw new Error('Failed to send answer - WebSocket not ready after 10s');
             }
+
+            console.log('[Call] Answer sent successfully');
         } catch (err) {
             console.error('[WebRTC] Answer call failed:', err);
             setCallStatus(CallStatus.FAILED);

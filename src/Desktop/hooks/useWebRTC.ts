@@ -12,9 +12,10 @@ export enum CallStatus {
 interface UseWebRTCProps {
     userId: number;
     sendWsMessage: (msg: any) => boolean;
+    sendWsMessageAsync?: (msg: any, maxWait?: number) => Promise<boolean>;
 }
 
-export const useWebRTC = ({ userId, sendWsMessage }: UseWebRTCProps) => {
+export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebRTCProps) => {
     const [callStatus, setCallStatus] = useState<CallStatus>(CallStatus.IDLE);
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isAudioEnabled, setIsAudioEnabled] = useState(true);
@@ -240,16 +241,31 @@ export const useWebRTC = ({ userId, sendWsMessage }: UseWebRTCProps) => {
             await pc.setLocalDescription(offer);
 
             console.log('[Call] Sending offer');
-            const sent = sendWsMessage({
+            const message = {
                 type: 'offer',
                 offer: pc.localDescription!.toJSON(),
                 author: userId,
                 video: withVideo
-            });
+            };
+
+            // Используем async версию если доступна, иначе fallback с ожиданием
+            let sent = false;
+            if (sendWsMessageAsync) {
+                sent = await sendWsMessageAsync(message, 10000);
+            } else {
+                // Fallback: ждем до 10 секунд
+                for (let i = 0; i < 100; i++) {
+                    sent = sendWsMessage(message);
+                    if (sent) break;
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
 
             if (!sent) {
-                throw new Error('Failed to send offer - WebSocket not ready');
+                throw new Error('Failed to send offer - WebSocket not ready after 10s');
             }
+
+            console.log('[Call] Offer sent successfully');
         } catch (err) {
             console.error('[WebRTC] Start call failed:', err);
             setCallStatus(CallStatus.FAILED);
@@ -304,15 +320,30 @@ export const useWebRTC = ({ userId, sendWsMessage }: UseWebRTCProps) => {
             await pc.setLocalDescription(answer);
 
             console.log('[Call] Sending answer');
-            const sent = sendWsMessage({
+            const message = {
                 type: 'answer',
                 answer: pc.localDescription!.toJSON(),
                 author: userId
-            });
+            };
+
+            // Используем async версию если доступна, иначе fallback с ожиданием
+            let sent = false;
+            if (sendWsMessageAsync) {
+                sent = await sendWsMessageAsync(message, 10000);
+            } else {
+                // Fallback: ждем до 10 секунд
+                for (let i = 0; i < 100; i++) {
+                    sent = sendWsMessage(message);
+                    if (sent) break;
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
 
             if (!sent) {
-                throw new Error('Failed to send answer - WebSocket not ready');
+                throw new Error('Failed to send answer - WebSocket not ready after 10s');
             }
+
+            console.log('[Call] Answer sent successfully');
         } catch (err) {
             console.error('[WebRTC] Answer call failed:', err);
             setCallStatus(CallStatus.FAILED);

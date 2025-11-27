@@ -74,6 +74,25 @@ export default function Messenger() {
         return false;
     }, []);
 
+    // Async WebSocket message sender with retry
+    const sendWsMessageAsync = useCallback(async (msg: any, maxWait = 5000): Promise<boolean> => {
+        const startTime = Date.now();
+        while (Date.now() - startTime < maxWait) {
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+                try {
+                    wsRef.current.send(JSON.stringify(msg));
+                    return true;
+                } catch (e) {
+                    console.error('[WS] Send failed:', e);
+                    return false;
+                }
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        console.warn('[WS] Timeout waiting for connection');
+        return false;
+    }, []);
+
     // WebRTC hook
     const {
         callStatus,
@@ -91,7 +110,7 @@ export default function Messenger() {
         toggleVideo,
         handleSignalingMessage,
         declineCall
-    } = useWebRTC({ userId: user_id, sendWsMessage });
+    } = useWebRTC({ userId: user_id, sendWsMessage, sendWsMessageAsync });
 
     // Load interlocutor name
     useEffect(() => {
