@@ -64,9 +64,9 @@ const CallDialog = ({
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const hasRemoteVideo = remoteStream &&
-        remoteStream.getVideoTracks().length > 0 &&
-        remoteStream.getVideoTracks()[0].enabled;
+    // Показываем video элемент если есть video track (даже если disabled)
+    const hasRemoteVideo = remoteStream && remoteStream.getVideoTracks().length > 0;
+    const isRemoteVideoEnabled = hasRemoteVideo && remoteStream.getVideoTracks()[0].enabled;
 
     const hasLocalVideo = localStream && localStream.getVideoTracks().length > 0;
 
@@ -103,16 +103,45 @@ const CallDialog = ({
                     overflow: 'hidden'
                 }}>
                     {hasRemoteVideo ? (
-                        <video
-                            ref={remoteVideoRef}
-                            autoPlay
-                            playsInline
-                            style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'contain'
-                            }}
-                        />
+                        <>
+                            <video
+                                ref={remoteVideoRef}
+                                autoPlay
+                                playsInline
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'contain',
+                                    display: isRemoteVideoEnabled ? 'block' : 'none'
+                                }}
+                            />
+                            {/* Показываем аватар когда видео выключено */}
+                            {!isRemoteVideoEnabled && (
+                                <Box sx={{
+                                    position: 'absolute',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    gap: 2
+                                }}>
+                                    <Avatar
+                                        sx={{
+                                            width: 150,
+                                            height: 150,
+                                            background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                                            fontSize: '3.5rem',
+                                            fontWeight: 'bold',
+                                            boxShadow: '0 10px 40px rgba(76, 175, 80, 0.4)'
+                                        }}
+                                    >
+                                        {interlocutorName[0]?.toUpperCase()}
+                                    </Avatar>
+                                    <Typography sx={{ color: 'rgba(255,255,255,0.7)', fontSize: '1.1rem' }}>
+                                        Камера выключена
+                                    </Typography>
+                                </Box>
+                            )}
+                        </>
                     ) : (
                         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                             <Box sx={{
@@ -177,7 +206,7 @@ const CallDialog = ({
                     )}
 
                     {/* Local video preview */}
-                    {isVideoEnabled && hasLocalVideo && (
+                    {hasLocalVideo && (
                         <Box sx={{
                             position: 'absolute',
                             top: 30,
@@ -189,7 +218,10 @@ const CallDialog = ({
                             border: '3px solid rgba(76, 175, 80, 0.5)',
                             backgroundColor: '#111',
                             boxShadow: '0 10px 40px rgba(0,0,0,0.6)',
-                            zIndex: 10
+                            zIndex: 10,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
                         }}>
                             <video
                                 ref={localVideoRef}
@@ -200,9 +232,25 @@ const CallDialog = ({
                                     width: '100%',
                                     height: '100%',
                                     objectFit: 'cover',
-                                    transform: 'scaleX(-1)'
+                                    transform: 'scaleX(-1)',
+                                    display: isVideoEnabled ? 'block' : 'none'
                                 }}
                             />
+                            {/* Показываем placeholder когда камера выключена */}
+                            {!isVideoEnabled && (
+                                <Box sx={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 1
+                                }}>
+                                    <VideocamOffIcon sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 48 }} />
+                                    <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', textAlign: 'center' }}>
+                                        Камера выключена
+                                    </Typography>
+                                </Box>
+                            )}
                         </Box>
                     )}
                 </Box>
