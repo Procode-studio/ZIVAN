@@ -27,7 +27,6 @@ import { getServerUrl, getWsUrl } from '../../config/serverConfig';
 import { getTurnServers, validateIceServers } from '../../config/turnConfig';
 import './messenger.css';
 
-// Унифицированные цвета
 const theme = {
     bg: {
         primary: '#0f0f1a',
@@ -82,7 +81,7 @@ export default function Messenger() {
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
     
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-    const localVideoRef = useRef<HTMLVideoElement>(null);
+    const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
     const remoteAudioRef = useRef<HTMLAudioElement>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
@@ -94,6 +93,12 @@ export default function Messenger() {
     const [callDuration, setCallDuration] = useState(0);
     const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const hangupRef = useRef<() => void>();
+
+    useEffect(() => {
+        if (localVideoRef.current && localStream) {
+            localVideoRef.current.srcObject = localStream;
+        }
+    }, [localStream]);
 
     useEffect(() => {
         const loadTurnServers = async () => {
@@ -108,7 +113,6 @@ export default function Messenger() {
         loadTurnServers();
     }, []);
 
-    // Cleanup on unmount
     useEffect(() => {
         return () => {
             if (localStreamRef.current) {
@@ -286,13 +290,11 @@ export default function Messenger() {
 
         console.log('[Call] Hanging up');
 
-        // Закрываем PeerConnection
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
         }
 
-        // Останавливаем все треки через ref (гарантированно)
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => {
                 console.log('[Call] Stopping track:', track.kind);
@@ -301,13 +303,13 @@ export default function Messenger() {
             localStreamRef.current = null;
         }
 
-        // Также проверяем state
         if (localStream) {
             localStream.getTracks().forEach(t => t.stop());
         }
         setLocalStream(null);
 
         setRemoteStream(null);
+        
         if (localVideoRef.current) localVideoRef.current.srcObject = null;
         if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
         if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
@@ -339,7 +341,6 @@ export default function Messenger() {
     // Устанавливаем remoteStream на video/audio элементы
     useEffect(() => {
         if (!remoteStream) {
-            // Очищаем при отсутствии stream
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
             if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
             return;
@@ -348,7 +349,6 @@ export default function Messenger() {
         if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStream) {
             remoteVideoRef.current.srcObject = remoteStream;
             remoteVideoRef.current.play().catch(err => {
-                // Игнорируем ошибку если она из-за прерывания
                 if (err.name !== 'AbortError') {
                     console.error('[RTC] Video play error:', err);
                 }
@@ -366,7 +366,6 @@ export default function Messenger() {
         }
     }, [remoteStream]);
 
-    // Останавливаем треки если нет активного звонка
     useEffect(() => {
         if (callStatus === 'idle' && localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => {
@@ -469,7 +468,7 @@ export default function Messenger() {
 
         try {
             console.log('[Call] Answering call, video:', withVideo);
-            setCallStatus('calling'); // Сразу меняем статус
+            setCallStatus('calling');
 
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
@@ -770,7 +769,6 @@ export default function Messenger() {
                         activityCheckIntervalRef.current = null;
                     }
 
-                    // Завершаем активный звонок при отключении WS
                     if (callStatus !== 'idle' && hangupRef.current) {
                         console.log('[WS] Terminating call due to disconnect');
                         hangupRef.current();
@@ -826,10 +824,8 @@ export default function Messenger() {
         return '#757575';
     };
 
-    // Функция для отправки typing
     const sendTyping = useCallback(() => {
         const now = Date.now();
-        // Отправляем typing не чаще чем раз в 2 секунды
         if (now - lastTypingSentRef.current > 2000 && wsRef.current?.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({ type: 'typing', author: user_id }));
             lastTypingSentRef.current = now;
@@ -1111,11 +1107,7 @@ export default function Messenger() {
                                 boxShadow: '0 10px 40px rgba(0,0,0,0.6)',
                                 zIndex: 10
                             }}>
-                                <video
-                                    ref={localVideoRef}
-                                    autoPlay
-                                    muted
-                                    playsInline
+                                <video ref={localVideoRef} autoPlay muted playsInline
                                     style={{
                                         width: '100%',
                                         height: '100%',
@@ -1226,24 +1218,25 @@ export default function Messenger() {
                     </Box>
                 </DialogContent>
             </Dialog>
-
-            {/* Incoming call dialog */}
             <Dialog
-                open={callStatus === 'ringing'}
-                onClose={declineCall}
-                maxWidth="xs"
-                fullWidth
-                PaperProps={{
-                    sx: {
-                        background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)',
-                        backgroundImage: 'none',
-                        borderRadius: 3,
-                        border: '1px solid rgba(76, 175, 80, 0.2)'
-                    }
-                }}
+                open={callStatus === 'calling' || callStatus === 'connected'}
+                onClose={hangup}
+                fullScreen
+                PaperComponent={({ children }) => (
+                    <Box
+                        sx={{
+                            background: 'linear-gradient(180deg, #0a0a15 0%, #1a1a2e 100%)',
+                            margin: 0,
+                            borderRadius: 0,
+                            width: '100%',
+                            height: '100%'
+                        }}
+                    >
+                        {children}
+                    </Box>
+                )}
             >
                 <DialogContent sx={{ textAlign: 'center', py: 5 }}>
-                    {/* Пульсирующий круг */}
                     <Box sx={{
                         position: 'relative',
                         display: 'inline-block',
@@ -1256,7 +1249,7 @@ export default function Messenger() {
                             right: -10,
                             bottom: -10,
                             borderRadius: '50%',
-                            border: '2px solid rgba(76, 175, 80, 0.3)',
+                            border: '2px solid rgba(76, 175, 79, 0.34)',
                             animation: 'pulse-ring 1.5s ease-out infinite'
                         },
                         '@keyframes pulse-ring': {

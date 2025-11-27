@@ -59,7 +59,6 @@ const UserInfoContext = createContext<UserInfoContextType>(
 )
 
 function App() {
-
   const serverUrl = getServerUrl();
   axios.defaults.baseURL = serverUrl;
 
@@ -74,10 +73,8 @@ function App() {
     updated_at: localStorage.getItem('updated_at') || ''
   });
 
-  // Проверяем, зарегистрирован ли пользователь
   const isLoggedIn = userInfo.user_id !== -1 && userInfo.phone !== '';
 
-  // Функция для выхода
   const logout = () => {
     localStorage.clear();
     setUserInfo({
@@ -92,9 +89,7 @@ function App() {
     });
   };
 
-  // Обновленная функция setUserInfo с сохранением в localStorage
   const updateUserInfo = (user: UserInfoType) => {
-    // Сохраняем в localStorage
     localStorage.setItem('user_id', user.user_id.toString());
     localStorage.setItem('phone', user.phone);
     localStorage.setItem('name', user.name);
@@ -103,8 +98,6 @@ function App() {
     localStorage.setItem('is_admin', JSON.stringify(user.is_admin));
     localStorage.setItem('created_at', user.created_at);
     localStorage.setItem('updated_at', user.updated_at);
-    
-    // Обновляем состояние
     setUserInfo(user);
   };
 
@@ -112,7 +105,7 @@ function App() {
     <ThemeProvider theme={darkTheme}>
       <UserInfoContext.Provider value={{userInfo, setUserInfo: updateUserInfo, logout}}>
         <BrowserRouter>
-          {/* Desktop Routes */}
+          {/*ПК роуты*/}
           <BrowserView>
             <Routes>
               <Route path='/' element={isLoggedIn ? <DefaultPage/> : <DesktopLoginPage/>} />
@@ -120,8 +113,7 @@ function App() {
               <Route path='/login' element={<DesktopLoginPage/>} />
             </Routes>
           </BrowserView>
-
-          {/* Mobile Routes */}
+          {/*Мобильные роуты*/}
           <MobileView className='mobile'>
             <Routes>
               <Route path='/' element={isLoggedIn ? <MobileFriendsPage /> : <DesktopLoginPage/>} />

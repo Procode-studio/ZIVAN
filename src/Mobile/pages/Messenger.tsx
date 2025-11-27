@@ -19,11 +19,7 @@ export default function MobileMessenger() {
     const userId = user.userInfo.user_id;
     const interlocutorId = parseInt(id || '-1');
     const [interlocutorName, setInterlocutorName] = useState('');
-
-    // Ref для хранения функции обработки сигналинга (решает проблему циклических зависимостей)
     const signalingHandlerRef = useRef<((data: any) => void) | null>(null);
-
-    // Load interlocutor profile
     useEffect(() => {
         if (interlocutorId === -1) {
             setInterlocutorName('');
@@ -49,7 +45,6 @@ export default function MobileMessenger() {
         return () => controller.abort();
     }, [interlocutorId]);
 
-    // Messages hook
     const {
         messages,
         isLoading: messagesLoading,
@@ -58,10 +53,7 @@ export default function MobileMessenger() {
         markAsRead
     } = useMessages(userId, interlocutorId);
 
-    // Ref для sendWsMessage (решает проблему циклических зависимостей)
     const sendWsMessageRef = useRef<((msg: any) => boolean) | null>(null);
-
-    // WebSocket message handler - теперь использует ref
     const handleWebSocketMessage = useCallback((data: any) => {
         const { type, author } = data;
 
@@ -75,21 +67,18 @@ export default function MobileMessenger() {
                 created_at: new Date().toISOString()
             });
 
-            // Отправляем read через ref
             if (author !== userId && sendWsMessageRef.current) {
                 sendWsMessageRef.current({ type: 'read', author: userId });
             }
         } else if (type === 'read') {
             markAsRead();
         } else {
-            // Handle WebRTC signaling через ref
             if (signalingHandlerRef.current) {
                 signalingHandlerRef.current(data);
             }
         }
     }, [userId, addMessage, markAsRead]);
 
-    // WebSocket hook
     const {
         isConnected: wsConnected,
         interlocutorOnline,
@@ -104,12 +93,10 @@ export default function MobileMessenger() {
         onMessage: handleWebSocketMessage
     });
 
-    // Обновляем ref при изменении sendWsMessage
     useEffect(() => {
         sendWsMessageRef.current = sendWsMessage;
     }, [sendWsMessage]);
 
-    // WebRTC hook
     const {
         callStatus,
         isVideoEnabled,
@@ -132,12 +119,10 @@ export default function MobileMessenger() {
         sendWsMessageAsync
     });
 
-    // Обновляем ref при изменении handleSignalingMessage
     useEffect(() => {
         signalingHandlerRef.current = handleSignalingMessage;
     }, [handleSignalingMessage]);
 
-    // Send text message
     const handleSendMessage = useCallback((text: string) => {
         if (interlocutorId === -1) return;
         
@@ -153,7 +138,6 @@ export default function MobileMessenger() {
         });
     }, [userId, interlocutorId, sendWsMessage]);
 
-    // Call handlers
     const handleStartAudioCall = useCallback(() => {
         startCall(false);
     }, [startCall]);
@@ -168,7 +152,6 @@ export default function MobileMessenger() {
         }
     }, [answerCall, incomingCallVideo, pendingOfferRef]);
 
-    // Loading state
     if (messagesLoading) {
         return (
             <Box sx={{
@@ -184,7 +167,6 @@ export default function MobileMessenger() {
         );
     }
 
-    // No interlocutor selected
     if (interlocutorId === -1) {
         return (
             <Box sx={{

@@ -4,7 +4,6 @@ import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff';
-import CameraswitchIcon from '@mui/icons-material/Cameraswitch';
 import { useRef, useEffect } from "react";
 import { CallStatus } from "../hooks/useWebRTC";
 

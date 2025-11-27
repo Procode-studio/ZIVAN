@@ -71,10 +71,8 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
         };
     }, [callStatus]);
 
-    // Cleanup on unmount
     useEffect(() => {
         return () => {
-            // Останавливаем все треки при размонтировании
             if (localStreamRef.current) {
                 localStreamRef.current.getTracks().forEach(track => {
                     track.stop();
@@ -88,11 +86,9 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
         };
     }, []);
 
-    // Функция остановки всех media треков
     const stopAllTracks = useCallback(() => {
         console.log('[WebRTC] Stopping all tracks');
 
-        // Останавливаем через ref
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => {
                 console.log('[WebRTC] Stopping track:', track.kind);
@@ -100,8 +96,6 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             });
             localStreamRef.current = null;
         }
-
-        // Также проверяем state
         if (localStream) {
             localStream.getTracks().forEach(track => {
                 track.stop();
@@ -180,27 +174,17 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
     const hangup = useCallback(() => {
         if (hangupProcessingRef.current) return;
         hangupProcessingRef.current = true;
-
-        console.log('[Call] Hanging up');
-
-        // Закрываем PeerConnection
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
         }
-
-        // Останавливаем все треки
         stopAllTracks();
-
-        // Сброс состояния
         setCallStatus(CallStatus.IDLE);
         setIsVideoEnabled(false);
         setIsAudioEnabled(true);
         remoteDescSetRef.current = false;
         pendingCandidatesRef.current = [];
         pendingOfferRef.current = null;
-
-        // Отправляем hangup
         sendWsMessage({
             type: 'hangup',
             author: userId
@@ -213,7 +197,6 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
 
     const startCall = useCallback(async (withVideo: boolean) => {
         try {
-            console.log('[Call] Starting call, video:', withVideo);
             setCallStatus(CallStatus.CALLING);
 
             const constraints = withVideo ? {
@@ -284,7 +267,7 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
 
         try {
             console.log('[Call] Answering call, video:', withVideo);
-            setCallStatus(CallStatus.CALLING); // Сразу меняем статус
+            setCallStatus(CallStatus.CALLING);
 
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: true,
@@ -320,10 +303,6 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
 
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-
-            console.log('[Call] Sending answer');
-
-            // Используем асинхронную отправку с ожиданием
             const message = {
                 type: 'answer',
                 answer: pc.localDescription!.toJSON(),
@@ -334,7 +313,6 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             if (sendWsMessageAsync) {
                 sent = await sendWsMessageAsync(message, 5000);
             } else {
-                // Fallback: пробуем несколько раз
                 for (let i = 0; i < 30; i++) {
                     sent = sendWsMessage(message);
                     if (sent) break;
