@@ -199,6 +199,17 @@ export default function Messenger() {
         }
     }, [interlocutorId, user_id]);
 
+    // Refs for callbacks to avoid recreating WebSocket
+    const handleSignalingMessageRef = useRef(handleSignalingMessage);
+    const hangupRef = useRef(hangup);
+    const callStatusRef = useRef(callStatus);
+
+    useEffect(() => {
+        handleSignalingMessageRef.current = handleSignalingMessage;
+        hangupRef.current = hangup;
+        callStatusRef.current = callStatus;
+    }, [handleSignalingMessage, hangup, callStatus]);
+
     // WebSocket connection
     useEffect(() => {
         if (interlocutorId === -1 || !user_id || user_id === -1) {
@@ -299,7 +310,7 @@ export default function Messenger() {
                                 setIsTyping(false);
                             }, 3000);
                         } else if (['offer', 'answer', 'ice-candidate', 'hangup'].includes(type)) {
-                            handleSignalingMessage(data);
+                            handleSignalingMessageRef.current(data);
                         }
                     } catch (e) {
                         console.error('[WS] Message parsing error:', e);
@@ -325,9 +336,9 @@ export default function Messenger() {
                         activityCheckIntervalRef.current = null;
                     }
 
-                    if (callStatus !== CallStatus.IDLE) {
+                    if (callStatusRef.current !== CallStatus.IDLE) {
                         console.log('[WS] Terminating call due to disconnect');
-                        hangup();
+                        hangupRef.current();
                     }
 
                     if (!isIntentionallyClosed) {
@@ -357,7 +368,7 @@ export default function Messenger() {
                 wsRef.current = null;
             }
         };
-    }, [user_id, interlocutorId, handleSignalingMessage, callStatus, hangup]);
+    }, [user_id, interlocutorId]);
 
     const getStatusText = () => {
         if (callStatus === CallStatus.CALLING) return 'Вызов...';
