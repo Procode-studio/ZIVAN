@@ -202,13 +202,19 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             console.log('[Call] Starting call, video:', withVideo);
             setCallStatus(CallStatus.CALLING);
 
+            // Определяем мобильное устройство
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+            // Упрощенные constraints для мобильных устройств
             const constraints = withVideo ? {
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
                     autoGainControl: true
                 },
-                video: {
+                video: isMobile ? {
+                    facingMode: 'user'
+                } : {
                     width: { ideal: 1280 },
                     height: { ideal: 720 },
                     frameRate: { ideal: 30 },
@@ -217,12 +223,16 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             } : {
                 audio: {
                     echoCancellation: true,
-                    noiseSuppression: true
+                    noiseSuppression: true,
+                    autoGainControl: true
                 },
                 video: false
             };
 
+            console.log('[Call] Requesting media with constraints:', constraints);
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            console.log('[Call] Got media stream');
+
             localStreamRef.current = stream;
             setLocalStream(stream);
             setIsVideoEnabled(withVideo);
@@ -262,7 +272,7 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             }
 
             if (!sent) {
-                throw new Error('Failed to send offer - WebSocket not ready after 10s');
+                throw new Error('WebSocket не готов. Проверьте соединение.');
             }
 
             console.log('[Call] Offer sent successfully');
@@ -270,10 +280,24 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             console.error('[WebRTC] Start call failed:', err);
             setCallStatus(CallStatus.FAILED);
             stopAllTracks();
-            alert(`Не удалось начать звонок: ${err instanceof Error ? err.message : 'Проверьте разрешения'}`);
+
+            let errorMsg = 'Не удалось начать звонок';
+            if (err instanceof Error) {
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    errorMsg = 'Доступ к камере/микрофону запрещен. Разрешите доступ в настройках браузера.';
+                } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                    errorMsg = 'Камера или микрофон не найдены';
+                } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                    errorMsg = 'Не удалось получить доступ к камере/микрофону. Возможно, они используются другим приложением.';
+                } else {
+                    errorMsg = err.message;
+                }
+            }
+
+            alert(errorMsg);
             setTimeout(() => setCallStatus(CallStatus.IDLE), 2000);
         }
-    }, [userId, createPeerConnection, sendWsMessage, stopAllTracks]);
+    }, [userId, createPeerConnection, sendWsMessage, sendWsMessageAsync, stopAllTracks]);
 
     const answerCall = useCallback(async (offer: RTCSessionDescriptionInit, withVideo: boolean) => {
         if (callStatus !== CallStatus.RINGING) {
@@ -285,10 +309,37 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             console.log('[Call] Answering call, video:', withVideo);
             setCallStatus(CallStatus.CALLING);
 
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: true,
-                video: withVideo
-            });
+            // Определяем мобильное устройство
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+            // Упрощенные constraints для мобильных устройств
+            const constraints = withVideo ? {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                },
+                video: isMobile ? {
+                    facingMode: 'user'
+                } : {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    frameRate: { ideal: 30 },
+                    facingMode: 'user'
+                }
+            } : {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                },
+                video: false
+            };
+
+            console.log('[Call] Requesting media with constraints:', constraints);
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            console.log('[Call] Got media stream');
+
             localStreamRef.current = stream;
             setLocalStream(stream);
             setIsVideoEnabled(withVideo);
@@ -340,7 +391,7 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             }
 
             if (!sent) {
-                throw new Error('Failed to send answer - WebSocket not ready after 10s');
+                throw new Error('WebSocket не готов. Проверьте соединение.');
             }
 
             console.log('[Call] Answer sent successfully');
@@ -348,10 +399,24 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             console.error('[WebRTC] Answer call failed:', err);
             setCallStatus(CallStatus.FAILED);
             stopAllTracks();
-            alert('Не удалось ответить на звонок');
+
+            let errorMsg = 'Не удалось ответить на звонок';
+            if (err instanceof Error) {
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    errorMsg = 'Доступ к камере/микрофону запрещен. Разрешите доступ в настройках браузера.';
+                } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                    errorMsg = 'Камера или микрофон не найдены';
+                } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                    errorMsg = 'Не удалось получить доступ к камере/микрофону. Возможно, они используются другим приложением.';
+                } else {
+                    errorMsg = err.message;
+                }
+            }
+
+            alert(errorMsg);
             setTimeout(() => setCallStatus(CallStatus.IDLE), 2000);
         }
-    }, [userId, createPeerConnection, sendWsMessage, stopAllTracks, callStatus]);
+    }, [userId, createPeerConnection, sendWsMessage, sendWsMessageAsync, stopAllTracks, callStatus]);
 
     const toggleAudio = useCallback(() => {
         const stream = localStreamRef.current || localStream;
