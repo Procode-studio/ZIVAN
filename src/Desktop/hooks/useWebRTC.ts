@@ -31,6 +31,7 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
     const remoteDescSetRef = useRef(false);
     const hangupProcessingRef = useRef(false);
     const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const callTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
 
     // Load TURN servers
@@ -70,6 +71,35 @@ export const useWebRTC = ({ userId, sendWsMessage, sendWsMessageAsync }: UseWebR
             }
         };
     }, [callStatus]);
+
+    // Call timeout - auto hangup if call doesn't connect within 60 seconds
+    useEffect(() => {
+        if (callStatus === CallStatus.CALLING) {
+            console.log('[Call] Starting 60s timeout');
+            callTimeoutRef.current = setTimeout(() => {
+                console.log('[Call] Timeout - no answer after 60s');
+                setCallStatus(CallStatus.FAILED);
+                stopAllTracks();
+                if (peerConnectionRef.current) {
+                    peerConnectionRef.current.close();
+                    peerConnectionRef.current = null;
+                }
+                alert('Звонок не удался. Нет ответа от собеседника.');
+                setTimeout(() => setCallStatus(CallStatus.IDLE), 2000);
+            }, 60000);
+        } else {
+            if (callTimeoutRef.current) {
+                clearTimeout(callTimeoutRef.current);
+                callTimeoutRef.current = null;
+            }
+        }
+        return () => {
+            if (callTimeoutRef.current) {
+                clearTimeout(callTimeoutRef.current);
+                callTimeoutRef.current = null;
+            }
+        };
+    }, [callStatus, stopAllTracks]);
 
     // Cleanup on unmount
     useEffect(() => {
